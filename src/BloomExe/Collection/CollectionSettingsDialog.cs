@@ -83,16 +83,6 @@ namespace Bloom.Collection
 			_showExperimentalBookSources.Checked = ExperimentalFeatures.IsFeatureEnabled(ExperimentalFeatures.kExperimentalSourceBooks);
 			_allowTeamCollection.Checked = ExperimentalFeatures.IsFeatureEnabled(ExperimentalFeatures.kTeamCollections);
 			_allowSpreadsheetImportExport.Checked = ExperimentalFeatures.IsFeatureEnabled(ExperimentalFeatures.kSpreadsheetImportExport);
-			if (!Program.ShowDevelopmentOnlyUI || SIL.PlatformUtilities.Platform.IsLinux)
-			{
-				_allowWebView2.Enabled = false;
-				_allowWebView2.Visible = false;
-				ExperimentalFeatures.SetValue(ExperimentalFeatures.kWebView2, false);
-			}
-			else
-			{
-				_allowWebView2.Checked = ExperimentalFeatures.IsFeatureEnabled(ExperimentalFeatures.kWebView2);
-			}
 
 			if (!ExperimentalFeatures.IsFeatureEnabled(ExperimentalFeatures.kTeamCollections) && tcManager.CurrentCollectionEvenIfDisconnected == null)
 			{
@@ -284,7 +274,7 @@ namespace Bloom.Collection
 				// See https://issues.bloomlibrary.org/youtrack/issue/BL-7641.
 				dlg.IncludeScriptMarkers = false;
 
-				if (DialogResult.OK != dlg.ShowDialog())
+				if (DialogResult.OK != dlg.ShowDialog(Shell.GetShellOrOtherOpenForm()))
 				{
 					return null;
 				}
@@ -376,20 +366,9 @@ namespace Bloom.Collection
 			{
 				_subscriptionCode = CollectionSettingsApi.LegacyBrandingName;
 			}
-			CollectionSettingsApi.SetSubscriptionCode(_subscriptionCode, IsSubscriptionCodeKnown(), GetEnterpriseStatus());
+			CollectionSettingsApi.SetSubscriptionCode(_subscriptionCode, _collectionSettings.IsSubscriptionCodeKnown(), _collectionSettings.GetEnterpriseStatus());
 			_loaded = true;
 			Logger.WriteEvent("Entered Settings Dialog");
-		}
-
-		/// <summary>
-		/// Return true if the part of the subscription code that identifies the branding is one we know about.
-		/// Either the branding files must exist or the expiration date must be set, even if expired.
-		/// This allows new, not yet implemented, subscriptions/brandings to be recognized as valid, and expired
-		/// subscriptions to be flagged as such but not treated as totally invalid.
-		/// </summary>
-		bool IsSubscriptionCodeKnown()
-		{
-			return BrandingProject.HaveFilesForBranding(_brand) || CollectionSettingsApi.GetExpirationDate(_subscriptionCode) != DateTime.MinValue;
 		}
 
 		private void _cancelButton_Click(object sender, EventArgs e)
@@ -462,19 +441,6 @@ namespace Bloom.Collection
 			}
 		}
 
-		private CollectionSettingsApi.EnterpriseStatus GetEnterpriseStatus()
-		{
-			if (CollectionSettingsApi.FixEnterpriseSubscriptionCodeMode)
-			{
-				// We're being displayed to fix a branding code...select that option
-				return CollectionSettingsApi.EnterpriseStatus.Subscription;
-			}
-			if (_brand == "Default")
-				return CollectionSettingsApi.EnterpriseStatus.None;
-			else if (_brand == "Local-Community")
-				return CollectionSettingsApi.EnterpriseStatus.Community;
-			return CollectionSettingsApi.EnterpriseStatus.Subscription; ;
-		}
 		/// <summary>
 		/// We configure the SettingsApi to use this method to notify this (as the manager of the whole dialog
 		/// including the "need to reload" message and the Ok/Cancel buttons) of changes the user makes
@@ -525,12 +491,6 @@ namespace Bloom.Collection
 		private void _allowSpreadsheetImportExport_CheckedChanged(object sender, EventArgs e)
 		{
 			ExperimentalFeatures.SetValue(ExperimentalFeatures.kSpreadsheetImportExport, _allowSpreadsheetImportExport.Checked);
-			ChangeThatRequiresRestart();
-		}
-
-		private void _allowWebView2_CheckedChanged(object sender, EventArgs e)
-		{
-			ExperimentalFeatures.SetValue(ExperimentalFeatures.kWebView2, _allowWebView2.Checked);
 			ChangeThatRequiresRestart();
 		}
 	}

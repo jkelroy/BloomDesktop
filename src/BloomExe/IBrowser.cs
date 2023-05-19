@@ -1,19 +1,15 @@
 using Bloom.Api;
 using Bloom.Book;
+using L10NSharp;
+using SIL.IO;
+using SIL.Reporting;
 using System;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
-using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml;
-using Gecko;
-using L10NSharp;
-using SIL.IO;
-using SIL.Reporting;
-using SIL.Windows.Forms.Miscellaneous;
 
 namespace Bloom
 {
@@ -21,8 +17,7 @@ namespace Bloom
 	public class BrowserMaker
 	{
 		/// <summary>
-		/// Create a new Browser, either a GeckoFxBrowser or a WebView2Browser, depending on the
-		/// ExperimentalFeatures settings.
+		/// Create a new WebView2Browser.
 		/// <summary>
 		/// <param name="offScreen">
 		/// Passing offscreen true means that, on Linux, we will use an OffScreenGeckoWebBrowser internally
@@ -35,15 +30,9 @@ namespace Bloom
 		/// We can remove the offScreen parameter when we retire Gecko, even if we decide to keep this
 		/// static method for creating browsers.
 		/// </remarks>
-		public static Browser MakeBrowser(bool offScreen = false, bool forceWv2 = false)
+		public static Browser MakeBrowser()
 		{
-		// Using this #if is the simplest way in this file to allow the WebView2Browser work
-		// to proceed without breaking the Linux build.
-#if !__MonoCS__
-			if (Program.RunningUnitTests || ExperimentalFeatures.IsFeatureEnabled(ExperimentalFeatures.kWebView2) || forceWv2)
-				return new WebView2Browser();
-#endif
-			return new GeckoFxBrowser(offScreen);
+			return new WebView2Browser();
 		}
 	}
 
@@ -60,9 +49,9 @@ namespace Bloom
 		internal Point ContextMenuLocation;
 		private XmlDocument _pageEditDom; // DOM, dypically in an iframe of _rootDom, which we are editing.
 		private XmlDocument _rootDom; // root DOM we navigate the browser to; typically a shell with other doms in iframes
-		// A temporary object needed just as long as it is the content of this browser.
-		// Currently may be a TempFile (a real filesystem file) or a SimulatedPageFile (just a dictionary entry).
-		// It gets disposed when the Browser goes away.
+									  // A temporary object needed just as long as it is the content of this browser.
+									  // Currently may be a TempFile (a real filesystem file) or a InMemoryHtmlFile (just a dictionary entry).
+									  // It gets disposed when the Browser goes away.
 		private IDisposable _dependentContent;
 		protected string _replacedUrl;
 
@@ -73,20 +62,6 @@ namespace Bloom
 		/// </summary>
 		public ControlKeyEvent ControlKeyEvent { get; set; }
 		int VerticalScrollDistance { get; set; }
-
-		public void FinishInitializing()
-		{
-			if (!Program.ShowDevelopmentOnlyUI)
-			{
-				// It would be more natural to default to hide and then show in this case,
-				// but that ends up positioning the labels in a different location.
-				// As this is temporary, it didn't seem worth bothering figuring it out.
-				// And I've never seen it flicker.
-				HideTemporaryLabelForDevelopment();
-			}
-		}
-
-		public abstract void HideTemporaryLabelForDevelopment();
 
 		public abstract void EnsureHandleCreated();
 
@@ -103,44 +78,12 @@ namespace Bloom
 		public abstract Bitmap GetPreview();
 
 		/// <summary>
-		/// This function is in the process of migrating from GeckoFx to Webview2.
-		/// It originally took a GeckoContextMenuEventArgs, but most users only wanted
-		/// the ContextMenu, to which they could add items. A couple also used the TargetNode.
-		/// There is no WebView2 equivalent of targetNode, so those menus will have to migrate
-		/// to Javascript. However, as long as those panes have not been migrated, we'll keep
-		/// passing the targetNode. It is the first argument if the browser is really a
-		/// GeckoFxBrowser; otherwise, null (and eventually will go away).
 		/// If it returns true these are in place of our standard extensions; if false, the
 		/// standard ones will follow whatever it adds.
 		/// </summary>
-		public Func<object, IMenuItemAdder, bool> ContextMenuProvider { get; set; }
+		public Func<IMenuItemAdder, bool> ContextMenuProvider { get; set; }
 
-		// To allow Typescript code to implement right-click, we'll do our special developer menu
-		// only if the control key is down. Though, if ContextMenuProvider is non-null, we'll assume
-		// C# is supposed to handle the context menu here.
-		virtual protected bool WantNativeMenu
-		{
-			get
-			{
-				return (Control.ModifierKeys & Keys.Control) != Keys.Control && ContextMenuProvider == null;
-			}
-		}
-
-		protected bool WantDebugMenuItems
-		{
-			get
-			{
-#if DEBUG
-				var addDebuggingMenuItems = true;
-#else
-			var debugBloom = Environment.GetEnvironmentVariable("DEBUGBLOOM")?.ToLowerInvariant();
-			var addDebuggingMenuItems =
- !String.IsNullOrEmpty(debugBloom) && debugBloom != "false" && debugBloom != "no" && debugBloom != "off";
-#endif
-				return addDebuggingMenuItems || ApplicationUpdateSupport.IsDevOrAlpha;
-			}
-
-		}
+		protected bool WantDebugMenuItems => ApplicationUpdateSupport.IsDevOrAlpha || ((ModifierKeys & Keys.Control) == Keys.Control);
 
 		public abstract void CopySelection();
 		public abstract void SelectAll();
@@ -169,14 +112,14 @@ namespace Bloom
 		// 'cause that provides the information needed
 		// to fake out the browser about where the 'file' is so internal references work.();
 		public void Navigate(HtmlDom htmlDom, HtmlDom htmlEditDom = null, bool setAsCurrentPageForDebugging = false,
-			BloomServer.SimulatedPageFileSource source = BloomServer.SimulatedPageFileSource.Nav)
+			InMemoryHtmlFileSource source = InMemoryHtmlFileSource.Nav)
 		{
 			if (InvokeRequired)
 			{
-				Invoke(new Action<HtmlDom, HtmlDom, bool, BloomServer.SimulatedPageFileSource>(Navigate), htmlDom, htmlEditDom, setAsCurrentPageForDebugging, source);
+				Invoke(new Action<HtmlDom, HtmlDom, bool, InMemoryHtmlFileSource>(Navigate), htmlDom, htmlEditDom, setAsCurrentPageForDebugging, source);
 				return;
 			}
-
+			// This must already be called before calling Navigate(), but it doesn't really hurt to call it again.
 			EnsureBrowserReadyToNavigate();
 
 			XmlDocument dom = htmlDom.RawDom;
@@ -186,7 +129,7 @@ namespace Bloom
 			_pageEditDom = editDom ?? dom;
 
 			XmlHtmlConverter.MakeXmlishTagsSafeForInterpretationAsHtml(dom);
-			var fakeTempFile = BloomServer.MakeSimulatedPageFileInBookFolder(htmlDom, setAsCurrentPageForDebugging: setAsCurrentPageForDebugging, source: source);
+			var fakeTempFile = BloomServer.MakeInMemoryHtmlFileInBookFolder(htmlDom, setAsCurrentPageForDebugging: setAsCurrentPageForDebugging, source: source);
 			SetNewDependent(fakeTempFile);
 			UpdateDisplay(fakeTempFile.Key);
 		}
@@ -194,7 +137,7 @@ namespace Bloom
 		private void SetNewDependent(IDisposable dependent)
 		{
 			// Save information needed to prevent http://issues.bloomlibrary.org/youtrack/issue/BL-4268.
-			var simulated = _dependentContent as SimulatedPageFile;
+			var simulated = _dependentContent as InMemoryHtmlFile;
 			_replacedUrl = (simulated != null) ? simulated.Key : null;
 
 			if (_dependentContent != null)
@@ -249,7 +192,7 @@ namespace Bloom
 			}
 			UpdateDisplay(url);
 		}
-		public abstract bool NavigateAndWaitTillDone(HtmlDom htmlDom, int timeLimit, BloomServer.SimulatedPageFileSource source, Func<bool> cancelCheck = null, bool throwOnTimeout = true);
+		public abstract bool NavigateAndWaitTillDone(HtmlDom htmlDom, int timeLimit, InMemoryHtmlFileSource source, Func<bool> cancelCheck = null, bool throwOnTimeout = true);
 
 		public void NavigateRawHtml(string html)
 		{
@@ -306,40 +249,11 @@ namespace Bloom
 			UpdateDisplay(path.ToLocalhost() + urlQueryParams);
 		}
 
-		public void OnOpenPageInSystemBrowser(object sender, EventArgs e)
+		public void OnOpenPageInEdge(object sender, EventArgs e)
 		{
 			Debug.Assert(!InvokeRequired);
-			bool isWindows = SIL.PlatformUtilities.Platform.IsWindows;
-			string genericError = "Something went wrong trying to open this page in ";
-			try
-			{
-				// An earlier version of this method made a new temp file in hopes that it would go on working
-				// in the browser even after Bloom closed. This has gotten steadily less feasible as we depend
-				// more on the http server. With the <base> element now removed, an independent page file will
-				// have even more missing links. I don't think it's worth making a separate temp file any more.
-				if (isWindows)
-					Process.Start("Firefox.exe", '"' + Url + '"');
-				else
-					SIL.Program.Process.SafeStart("xdg-open", Uri.EscapeUriString(Url));
-			}
-			catch (Win32Exception)
-			{
-				if (isWindows)
-				{
-					MessageBox.Show(genericError + "Firefox. Do you have Firefox in your PATH variable?");
-				}
-				else
-				{
-					// See comment in OnGetTroubleShootingInformation() about why BeginInvoke is needed.
-					// Also, in Linux, xdg-open calls the System Browser, which isn't necessarily Firefox.
-					// It isn't necessarily in Windows, either, but there we're specifying Firefox.
-					BeginInvoke((Action)delegate ()
-					{
-						MessageBox.Show(genericError + "the System Browser.");
-					});
-
-				}
-			}
+			Process.Start("msedge", $"{Url}");
+			// intentionally letting any errors just escape, give us an error
 		}
 
 		public void ReadEditableAreasNow(string bodyHtml, string userCssContent)
@@ -457,94 +371,39 @@ namespace Bloom
 		public abstract void ShowHtml(string html);
 		public abstract void UpdateEditButtons();
 
-		protected void AdjustContextMenu(GeckoNode targetNode, IMenuItemAdder adder)
+		protected void AdjustContextMenu(IMenuItemAdder adder)
 		{
-			if (WantNativeMenu)
-				return;
-			bool addedFFMenuItem = false;
 			Debug.Assert(!InvokeRequired);
 
 			ContextMenuLocation = PointToClient(Cursor.Position);
+
 			if (ContextMenuProvider != null)
 			{
-				var replacesStdMenu = ContextMenuProvider(targetNode, adder);
-				if (WantDebugMenuItems || ((ModifierKeys & Keys.Control) == Keys.Control))
-				{
-					AddOpenPageInFFItem(adder);
-					addedFFMenuItem = true;
-				}
+				var replacesStdMenu = ContextMenuProvider(adder);
 
-				if (replacesStdMenu)
-					return;
+				// Currently, this whole if condition is useless and we could just remove it.
+				// But some day we may reinstitute non-debug, standard menu items, and then
+				// this logic will be needed.
+				//if (replacesStdMenu)
+				//{
+				//	AddOtherMenuItemsForDebugging(adder);
+				//	return;
+				//}
 			}
 
-			if (!addedFFMenuItem)
-				AddOpenPageInFFItem(adder);
-			// Allow debugging entries on any alpha builds as well as any debug builds.
-			if (WantDebugMenuItems)
-				AddOtherMenuItemsForDebugging(adder);
+			// Here is where we would add the standard menu items, if we had any.
 
-			adder.Add(
-				LocalizationManager.GetString("Browser.CopyTroubleshootingInfo", "Copy Troubleshooting Information"),
-				(EventHandler)OnGetTroubleShootingInformation);
-		}
-
-		private void AddOpenPageInFFItem(IMenuItemAdder adder)
-		{
-			adder.Add(
-				LocalizationManager.GetString("Browser.OpenPageInFirefox", "Open Page in Firefox (which must be in the PATH environment variable)"),
-				OnOpenPageInSystemBrowser);
+			AddOtherMenuItemsForDebugging(adder);
 		}
 
 		private void AddOtherMenuItemsForDebugging(IMenuItemAdder adder)
 		{
-			adder.Add((string)"Refresh", (EventHandler)OnRefresh);
-		}
+			if (!WantDebugMenuItems)
+				return;
 
-		public abstract void OnRefresh(object sender, EventArgs e);
-
-		// This is currently still Gecko-specific, not sure whether there will be an equivalent for WebView2.
-		public virtual void OnGetTroubleShootingInformation(object sender, EventArgs e)
-		{
-			Debug.Assert(!InvokeRequired);
-
-			try
-			{
-				//we can imagine doing a lot more than this... the main thing I wanted was access to the <link> paths for stylesheets,
-				//as those can be the cause of errors if Bloom is using the wrong version of some stylesheet, and it might not do that
-				//on a developer/ support-person computer.
-				var builder = new StringBuilder();
-
-				foreach (string label in ErrorReport.Properties.Keys)
-				{
-					builder.AppendLine(label + ": " + ErrorReport.Properties[label] + Environment.NewLine);
-				}
-
-				builder.AppendLine();
-
-				using (var client = new WebClient())
-				{
-					builder.AppendLine(client.DownloadString(Url));
-				}
-				PortableClipboard.SetText(builder.ToString());
-
-				// NOTE: it seems strange to call BeginInvoke to display the MessageBox. However, this
-				// is necessary on Linux: this method gets called from the context menu which on Linux
-				// is displayed by GTK (which has its own message loop). Calling MessageBox.Show
-				// directly kind of works but has all kinds of side-effects like the message box not
-				// properly updating and geckofx not properly working anymore. Displaying the message
-				// box asynchronously lets us get out of the GTK message loop and displays it
-				// properly on the SWF message loop. Technically this is only necessary on Linux, but
-				// it doesn't hurt on Windows.
-				BeginInvoke((Action) delegate()
-				{
-					MessageBox.Show("Debugging information has been placed on your clipboard. You can paste it into an email.");
-				});
-			}
-			catch (Exception ex)
-			{
-				NonFatalProblem.ReportSentryOnly(ex);
-			}
+			adder.Add(
+				"Open Page in Edge", // dev only, no need to localize
+				OnOpenPageInEdge);
 		}
 
 		public abstract void SaveDocument(string path);

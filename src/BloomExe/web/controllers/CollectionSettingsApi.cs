@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -56,6 +56,8 @@ namespace Bloom.web.controllers
 		{
 			_collectionSettings = collectionSettings;
 			_xmatterPackFinder = xmatterPackFinder;
+
+			SetSubscriptionCode(_collectionSettings.SubscriptionCode, _collectionSettings.IsSubscriptionCodeKnown(), _collectionSettings.GetEnterpriseStatus());
 		}
 
 		private bool IsEnterpriseEnabled
@@ -88,9 +90,11 @@ namespace Bloom.web.controllers
 					if (_enterpriseStatus == EnterpriseStatus.None)
 					{
 						_knownBrandingInSubscriptionCode = true;
+						ResetBookshelf();
 						BrandingChangeHandler("Default", null);
 					} else if (_enterpriseStatus == EnterpriseStatus.Community)
 					{
+						ResetBookshelf();
 						BrandingChangeHandler("Local-Community", null);
 					}
 					else
@@ -112,6 +116,15 @@ namespace Bloom.web.controllers
 					var requestData = DynamicJson.Parse(request.RequiredPostJson());
 					SubscriptionCode = requestData.subscriptionCode;
 					_enterpriseExpiry = GetExpirationDate(SubscriptionCode);
+					var newBranding = GetBrandingFromCode(SubscriptionCode);
+					var oldBranding = !string.IsNullOrEmpty(_collectionSettings.InvalidBranding) ? _collectionSettings.InvalidBranding : "";
+					// If the user has entered a different subscription code then what was previously saved, we
+					// generally want to clear out the Bookshelf. But if the BrandingKey is the same as the old one,
+					// we'll leave it alone, since they probably renewed for another year or so and want to use the
+					// same bookshelf.
+					if (SubscriptionCode != _collectionSettings.SubscriptionCode &&
+						newBranding != oldBranding)
+							ResetBookshelf();
 					if (_enterpriseExpiry < DateTime.Now) // expired or invalid
 					{
 						BrandingChangeHandler("Default", null);
@@ -166,7 +179,6 @@ namespace Bloom.web.controllers
 			}, false);
 
 			// Enhance: The get here has one signature {brandingProjectName, defaultBookshelf} while the post has another (defaultBookshelfId:string).
-			// It's 
 			apiHandler.RegisterEndpointHandler(kApiUrlPart + "bookShelfData", request =>
 			{
 				if (request.HttpMethod == HttpMethods.Get)
@@ -253,6 +265,12 @@ namespace Bloom.web.controllers
 
 			apiHandler.RegisterEndpointHandler(kApiUrlPart + "getCustomPaletteColors", HandleGetCustomColorsRequest, false);
 			apiHandler.RegisterEndpointHandler(kApiUrlPart + "addCustomPaletteColor", HandleAddCustomColor, false);
+		}
+
+		private void ResetBookshelf()
+		{
+			if (DialogBeingEdited != null)
+				DialogBeingEdited.PendingDefaultBookshelf = "";
 		}
 
 		private void HandleGetCustomColorsRequest(ApiRequest request)
@@ -376,7 +394,7 @@ namespace Bloom.web.controllers
 		{
 			FixEnterpriseSubscriptionCodeMode = true;
 			if (SubscriptionCodeLooksIncomplete(subscriptionCode))
-				LegacyBrandingName = invalidBranding; // otherwise we wont' show the legacy branding message, just bring up the dialog and show whatever's wrong.
+				LegacyBrandingName = invalidBranding; // otherwise we won't show the legacy branding message, just bring up the dialog and show whatever's wrong.
 		}
 
 		public static void EndFixEnterpriseBranding()
@@ -467,8 +485,9 @@ namespace Bloom.web.controllers
 			return sum;
 		}
 
-		// Updates things when the legacy combo in another tab is used to set the enterprise project.
-		// Does not try to inform the HTML; that is done by reloading the page.
+		// Used to initialize things in the constructor.
+		// 
+		// Also used by the settings dialog to ensure things are initialized properly there for a special "legacy" case.
 		public static void SetSubscriptionCode(string code, bool knownCode, EnterpriseStatus status)
 		{
 			SubscriptionCode = code;

@@ -89,11 +89,11 @@ namespace Bloom.Api
 		private void WriteOutput(byte[] buffer, HttpListenerResponse response)
 		{
 			response.ContentLength64 += buffer.Length;
-			// This is particularly useful in allowing the bloom-player used in the android preview
+			// This is particularly useful in allowing the bloom-player used in the BloomPUB preview
 			// to access the current preview book. Also allows local browsers running bloom-player
 			// to access it.
 			response.AppendHeader("Access-Control-Allow-Origin", "*");
-			// Allows bloomlibrary.org to call the common/loginData endpoint.
+			// Allows bloomlibrary.org to call the external endpoints.
 			response.AppendHeader("Access-Control-Allow-Headers", "*");
 			Stream output = response.OutputStream;
 			try
@@ -119,7 +119,7 @@ namespace Bloom.Api
 
 		public bool HaveOutput { get; private set; }
 
-		public void ReplyWithFileContent(string path, string originalPath = null)
+		public void ReplyWithFileContent(string path, string originalPath = null, bool dontCache = false)
 		{
 			//Deal with BL-3153, where the file was still open in another thread
 			FileStream fs;
@@ -158,8 +158,10 @@ namespace Bloom.Api
 				// I think 10s is short enough for stale builds and images not to be a problem, but it may be long enough to prevent
 				// some wasteful reloading of assets which are rapidly reused like avatars.
 				var maxAge = ShouldCache(path, originalPath) ? 600000 : 10;
+				// When generating thumbnail images, we don't want any caching of initial dummy images.
+				string cacheControl = dontCache ? "no-store" : $"max-age={maxAge}";
 				_actualContext.Response.AppendHeader("Cache-Control",
-					$"max-age={maxAge}");
+					cacheControl);
 
 					// A HEAD request (rather than a GET or POST request) is a request for just headers, and nothing can be written
 				// to the OutputStream. It is normally used to check if the contents of the file have changed without taking the
@@ -319,7 +321,7 @@ namespace Bloom.Api
 			return _cacheableExtensions.Contains(Path.GetExtension(path));
 		}
 
-		public void ReplyWithImage(string path, string originalPath = null)
+		public void ReplyWithImage(string path, string originalPath = null, bool dontCache = false)
 		{
 			if (path != null)
 			{
@@ -327,7 +329,7 @@ namespace Bloom.Api
 				if (pos > 0)
 					_actualContext.Response.ContentType = BloomServer.GetContentType(path.Substring(pos));
 			}
-			ReplyWithFileContent(path, originalPath);
+			ReplyWithFileContent(path, originalPath, dontCache);
 		}
 
 		public void WriteError(int errorCode, string errorDescription)

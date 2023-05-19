@@ -16,6 +16,7 @@ using System.Xml;
 using Bloom.Api;
 using Bloom.Collection;
 using Bloom.Edit;
+using Bloom.FontProcessing;
 using Bloom.History;
 using Bloom.Publish;
 using Bloom.TeamCollection;
@@ -60,6 +61,23 @@ namespace Bloom.Book
 		public const string ReadMeImagesFolderName = "ReadMeImages";
 
 		int _audioFilesCopiedForDuplication;
+
+		public const string BasicTextAndImageGuid = "adcd48df-e9ab-4a07-afd4-6a24d0398382";
+		public const string JustPictureGuid = "adcd48df-e9ab-4a07-afd4-6a24d0398385";
+		public const string PictureOnLeftGuid = "7b192144-527c-417c-a2cb-1fb5e78bf38a";
+		public const string JustTextGuid = "a31c38d8-c1cb-4eb9-951b-d2840f6a8bdb";
+		public const string JustVideoGuid = "8bedcdf8-3ad6-4967-b027-6c186436572f";
+		public const string VideoOverTextGuid = "299644f5-addb-476f-a4a5-e3978139b188";
+		public const string PictureAndVideoGuid = "24c90e90-2711-465d-8f20-980d9ffae299";
+		public const string BigTextDiglotGuid = "08422e7b-9406-4d11-8c71-02005b1b8095";
+		public const string WidgetGuid = "3a705ac1-c1f2-45cd-8a7d-011c009cf406"; // default page type for a single widget
+
+		/// <summary>
+		/// Flag whether we want to write out the @font-face lines for served fonts to defaultLangStyles.css.
+		/// (ePUB and BloomPub publishing are when we don't want to do this, either because those fonts will
+		/// be embedded or because bloom-player already has compatible @font-face declarations for Andika.)
+		/// </summary>
+		public bool WriteFontFaces = true;
 
 		//for moq'ing only; parameterless ctor required by Moq
 		public Book()
@@ -433,7 +451,7 @@ namespace Bloom.Book
 			pageDom.AddStyleSheet("");
 			pageDom.SortStyleSheetLinks();
 			AddJavaScriptForEditing(pageDom);
-			RuntimeInformationInjector.AddUIDictionaryToDom(pageDom, _bookData);
+			RuntimeInformationInjector.AddUIDictionaryToDom(pageDom, _bookData, BookInfo);
 			RuntimeInformationInjector.AddUISettingsToDom(pageDom, _bookData, Storage.GetFileLocator());
 			UpdateMultilingualSettings(pageDom);
 
@@ -980,10 +998,12 @@ namespace Bloom.Book
 		/// Fix errors that users have encountered.
 		/// 1) duplication of language div elements inside of translationGroup divs.
 		/// 2) duplication of audio id values in the book.
+		/// 3) improper license change
 		/// </summary>
 		/// <remarks>
 		/// See https://issues.bloomlibrary.org/youtrack/issue/BL-6923.
 		/// See https://issues.bloomlibrary.org/youtrack/issue/BL-9503 and several other issues.
+		/// See https://issues.bloomlibrary.org/youtrack/issue/BL-11903.
 		/// </remarks>
 		private void FixErrorsEncounteredByUsers(HtmlDom bookDOM)
 		{
@@ -1025,6 +1045,8 @@ namespace Bloom.Book
 			FixMissingAudioIdsInBookPages(bookDOM);
 			// Fix bug reported in BL-10786: coverImage multiply HTML-encoded.
 			FixExcessiveHTMLEncodingOfCoverImage(bookDOM);
+			// Fix bug reported in BL-11093: improper change of license.
+			FixImproperLicenseChange(bookDOM, _bookData);
 		}
 
 		/// <summary>
@@ -1159,6 +1181,36 @@ namespace Bloom.Book
 			}
 		}
 
+		private void FixImproperLicenseChange(HtmlDom bookDom, BookData bookData)
+		{
+			var originalMetadata = BookCopyrightAndLicense.GetOriginalMetadata(bookDom, bookData);
+			if (!BookCopyrightAndLicense.IsDerivative(originalMetadata))
+				return;
+			var originalLicense = originalMetadata.License;
+			if (originalLicense == null)
+				return;		// just to be safe
+			var keepOriginal = originalLicense is NullLicense ||	// must preserve "contact copyright holder"
+				originalLicense is CustomLicense ||					// must preserve custom licenses
+				(originalLicense is CreativeCommonsLicense &&
+					(originalLicense as CreativeCommonsLicense).DerivativeRule == CreativeCommonsLicense.DerivativeRules.NoDerivatives);
+			if (!keepOriginal)
+				return;
+			var metadata = BookCopyrightAndLicense.GetMetadata(bookDom, bookData);
+			var license = metadata.License;
+			if (AreLicensesDifferent(license, originalLicense))
+			{
+				metadata.License = originalLicense;
+				BookCopyrightAndLicense.SetMetadata(metadata, bookDom, this.FolderPath, bookData, false);
+			}
+		}
+
+		private bool AreLicensesDifferent(LicenseInfo license, LicenseInfo originalLicense)
+		{
+			return license.Token != originalLicense.Token ||
+				license.RightsStatement != originalLicense.RightsStatement ||
+				license.Url != originalLicense.Url;
+		}
+
 		class GuidAndPath
 		{
 			public string Guid; // replacement guid
@@ -1180,28 +1232,28 @@ namespace Bloom.Book
 				{
 					_pageMigrations = new Dictionary<string, GuidAndPath>();
 					// Basic Book
-					_pageMigrations["5dcd48df-e9ab-4a07-afd4-6a24d0398382"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398382", Path = "Basic Book/Basic Book.html" }; // Basic Text and Picture
+					_pageMigrations["5dcd48df-e9ab-4a07-afd4-6a24d0398382"] = new GuidAndPath() { Guid = BasicTextAndImageGuid, Path = "Basic Book/Basic Book.html" };
 					_pageMigrations["5dcd48df-e9ab-4a07-afd4-6a24d0398383"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398383", Path = "Basic Book/Basic Book.html" }; // Picture in Middle
 					_pageMigrations["5dcd48df-e9ab-4a07-afd4-6a24d0398384"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398384", Path = "Basic Book/Basic Book.html" }; // Picture on Bottom
-					_pageMigrations["5dcd48df-e9ab-4a07-afd4-6a24d0398385"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398385", Path = "Basic Book/Basic Book.html" }; // Just a Picture
-					_pageMigrations["d31c38d8-c1cb-4eb9-951b-d2840f6a8bdb"] = new GuidAndPath() { Guid = "a31c38d8-c1cb-4eb9-951b-d2840f6a8bdb", Path = "Basic Book/Basic Book.html" }; // Just Text
+					_pageMigrations["5dcd48df-e9ab-4a07-afd4-6a24d0398385"] = new GuidAndPath() { Guid = JustPictureGuid, Path = "Basic Book/Basic Book.html" };
+					_pageMigrations["d31c38d8-c1cb-4eb9-951b-d2840f6a8bdb"] = new GuidAndPath() { Guid = JustTextGuid, Path = "Basic Book/Basic Book.html" };
 					_pageMigrations["FD115DFF-0415-4444-8E76-3D2A18DBBD27"] = new GuidAndPath() { Guid = "aD115DFF-0415-4444-8E76-3D2A18DBBD27", Path = "Basic Book/Basic Book.html" }; // Picture & Word
 					// Big book [see commit 7bfefd0dbc9faf8930c4926b0156e44d3447e11b]
-					_pageMigrations["AF708725-E961-44AA-9149-ADF66084A04F"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398385", Path = "Big Book/Big Book.html" }; // Just a Picture
-					_pageMigrations["D9A55EB6-43A8-4C6A-8891-2C1CDD95772C"] = new GuidAndPath() { Guid = "a31c38d8-c1cb-4eb9-951b-d2840f6a8bdb", Path = "Big Book/Big Book.html" }; // Just Text
+					_pageMigrations["AF708725-E961-44AA-9149-ADF66084A04F"] = new GuidAndPath() { Guid = JustPictureGuid, Path = "Big Book/Big Book.html" };
+					_pageMigrations["D9A55EB6-43A8-4C6A-8891-2C1CDD95772C"] = new GuidAndPath() { Guid = JustTextGuid, Path = "Big Book/Big Book.html" };
 					// Decodable reader [see commit 7bfefd0dbc9faf8930c4926b0156e44d3447e11b]
-					_pageMigrations["f95c0314-ce47-4b47-a638-06325ad1a963"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398382", Path = "Decodable Reader/Decodable Reader.html" }; // Basic Text and Picture
+					_pageMigrations["f95c0314-ce47-4b47-a638-06325ad1a963"] = new GuidAndPath() { Guid = BasicTextAndImageGuid, Path = "Decodable Reader/Decodable Reader.html" };
 					_pageMigrations["c0847f89-b58a-488a-bbee-760ce4a13567"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398383", Path = "Decodable Reader/Decodable Reader.html" }; // Picture in Middle
 					_pageMigrations["f99b252a-26b1-40c8-b543-dbe0b05f08a5"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398384", Path = "Decodable Reader/Decodable Reader.html" }; // Picture on Bottom
-					_pageMigrations["c506f278-cb9f-4053-9e29-f7a9bdf64445"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398385", Path = "Decodable Reader/Decodable Reader.html" }; // Just a Picture
-					_pageMigrations["e4ff6195-b0b6-4909-8025-4424ee9188ea"] = new GuidAndPath() { Guid = "a31c38d8-c1cb-4eb9-951b-d2840f6a8bdb", Path = "Decodable Reader/Decodable Reader.html" }; // Just Text
+					_pageMigrations["c506f278-cb9f-4053-9e29-f7a9bdf64445"] = new GuidAndPath() { Guid = JustPictureGuid, Path = "Decodable Reader/Decodable Reader.html" };
+					_pageMigrations["e4ff6195-b0b6-4909-8025-4424ee9188ea"] = new GuidAndPath() { Guid = JustTextGuid, Path = "Decodable Reader/Decodable Reader.html" };
 					_pageMigrations["bd85f898-0a45-45b3-8e34-faaac8945a0c"] = new GuidAndPath() { Guid = "aD115DFF-0415-4444-8E76-3D2A18DBBD27", Path = "Decodable Reader/Decodable Reader.html" }; // Picture & Word
 					// Leveled reader [see commit 7bfefd0dbc9faf8930c4926b0156e44d3447e11b]
-					_pageMigrations["e9f2142b-f135-4bcd-9123-5a2623f5302f"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398382", Path = "Leveled Reader/Leveled Reader.html" }; // Basic Text and Picture
+					_pageMigrations["e9f2142b-f135-4bcd-9123-5a2623f5302f"] = new GuidAndPath() { Guid = BasicTextAndImageGuid, Path = "Leveled Reader/Leveled Reader.html" };
 					_pageMigrations["c5aae471-f801-4c5d-87b7-1614d56b0c53"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398383", Path = "Leveled Reader/Leveled Reader.html" }; // Picture in Middle
 					_pageMigrations["a1f437fe-c002-4548-af02-fe84d048b8fc"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398384", Path = "Leveled Reader/Leveled Reader.html" }; // Picture on Bottom
-					_pageMigrations["d7599aa7-f35c-4029-8aa2-9afda870bcfa"] = new GuidAndPath() { Guid = "adcd48df-e9ab-4a07-afd4-6a24d0398385", Path = "Leveled Reader/Leveled Reader.html" }; // Just a Picture
-					_pageMigrations["d93a28c6-9ff8-4f61-a820-49093e3e275b"] = new GuidAndPath() { Guid = "a31c38d8-c1cb-4eb9-951b-d2840f6a8bdb", Path = "Leveled Reader/Leveled Reader.html" }; // Just Text
+					_pageMigrations["d7599aa7-f35c-4029-8aa2-9afda870bcfa"] = new GuidAndPath() { Guid = JustPictureGuid, Path = "Leveled Reader/Leveled Reader.html" };
+					_pageMigrations["d93a28c6-9ff8-4f61-a820-49093e3e275b"] = new GuidAndPath() { Guid = JustTextGuid, Path = "Leveled Reader/Leveled Reader.html" };
 					_pageMigrations["a903467a-dad2-4767-8be9-54336cae7731"] = new GuidAndPath() { Guid = "aD115DFF-0415-4444-8E76-3D2A18DBBD27", Path = "Leveled Reader/Leveled Reader.html" }; // Picture & Word
 				}
 				return _pageMigrations;
@@ -1568,6 +1620,11 @@ namespace Bloom.Book
 						copyCurrentRule = false;
 				}
 			}
+			if (WriteFontFaces)
+			{
+				var serve = FontServe.GetInstance();
+				cssBuilder.Insert(0, serve.GetAllFontFaceDeclarations());
+			}
 			try
 			{
 				RobustFile.WriteAllText(path, cssBuilder.ToString());
@@ -1826,6 +1883,8 @@ namespace Bloom.Book
 
 			var dataBookLangs = bookDOM.GatherDataBookLanguages();
 			TranslationGroupManager.PrepareDataBookTranslationGroups(bookDOM.RawDom, dataBookLangs);
+
+			helper.InjectDefaultUserStylesFromXMatter();
 		}
 
 
@@ -2181,25 +2240,33 @@ namespace Bloom.Book
 		/// that are present, and the (boolean) values are true if the book is considered to be "complete"
 		/// in that language, which in some contexts (such as publishing to bloom library) governs whether
 		/// the language is published by default.
+		///
+		/// As of 5.5, we are no longer calling this with includeLangsOccurringOnlyInXmatter = true.
+		/// We think all the problems it used to solve (originally BL-7967) are now solved in other ways.
+		/// I'm leaving the code and comment in place for the moment, in case we need to revert.
+		/// START OBSOLETE COMMENT
 		/// It also makes a difference whether an interesting element occurs in xmatter or not.
 		/// A language is never considered an "incomplete translation" because it is missing in an xmatter element,
 		/// mainly because it's so common for elements there to be in just a national language (BL-8527).
 		/// For some purposes, a language that occurs ONLY in xmatter doesn't count at all... it won't even be
-		/// a key in the dictionary unless includeLangsOccurringOnlyInXmatter is true.
-		///
-		/// For determining which Text Languages to display in Publish -> Android and which pages to delete
-		/// from a .bloompub file, we pass the parameter as true. I (gjm) am unclear as to why historically
-		/// we did it this way, but BL-7967 might be part of the problem
-		/// (where xmatter pages only in L2 were erroneously deleted).
+		/// a key in the dictionary unless includeLangsOccurringOnlyInXmatter is true
+		/// OR it is a "required" language (a content language of the book).
+		/// END OBSOLETE COMMENT
 		/// </summary>
-		/// <remarks>The logic here is used to determine which language checkboxes to show in the web upload.
+		/// <remarks>The logic here is used to determine how to present (show and/or enable) language checkboxes on the publish screens.
 		/// Nearly identical logic is used in bloom-player to determine which languages to show on the Language Menu,
 		/// so changes here may need to be reflected there and vice versa.</remarks>
-		public Dictionary<string, bool> AllLanguages(bool includeLangsOccurringOnlyInXmatter = false)
+		private Dictionary<string, bool> AllLanguages(bool includeLangsOccurringOnlyInXmatter = false)
 		{
 			var result = new Dictionary<string, bool>();
 			var parents = new HashSet<XmlElement>(); // of interesting non-empty children
 			var langDivs = OurHtmlDom.GetLanguageDivs(includeLangsOccurringOnlyInXmatter).ToArray();
+
+			// Always include required languages.
+			// Note that if we ever decide to NOT always include these languages, we think we will have a problem
+			// initializing the settings of older (before we uploaded settings in meta.json or publish-settings.json) picture books when harvesting.
+			foreach (var lang in GetRequiredLanguages())
+				result[lang] = true;
 
 			// First pass: fill in the dictionary with languages which have non-empty content in relevant divs
 			foreach (var div in langDivs)
@@ -2309,10 +2376,10 @@ namespace Bloom.Book
 
 		private static bool HasContentInLang(XmlElement parent, string lang)
 		{
-			foreach (var divN in parent.ChildNodes)
+			foreach (var node in parent.ChildNodes)
 			{
-				var div = divN as XmlElement;
-				if (div?.Attributes["lang"] == null || div.Attributes["lang"].Value != lang)
+				var div = node as XmlElement;
+				if (div?.Attributes["lang"] == null || div.Attributes["lang"].Value != lang || div.Name == "label")
 					continue;
 				return !string.IsNullOrWhiteSpace(div.InnerText); // this one settles it: success if non-empty
 			}
@@ -2968,16 +3035,10 @@ namespace Bloom.Book
 		/// </remarks>
 		private void CopyMissingStylesheetFiles(IPage templatePage)
 		{
-			foreach (string sheetName in templatePage.Book.OurHtmlDom.GetTemplateStyleSheets())
-			{
-				var destinationPath = Path.Combine(FolderPath, sheetName);
-				if (!RobustFile.Exists(destinationPath))
-				{
-					var sourcePath = Path.Combine(templatePage.Book.FolderPath, sheetName);
-					if (RobustFile.Exists(sourcePath))
-						RobustFile.Copy(sourcePath, destinationPath);
-				}
-			}
+			var sourceDom = templatePage.Book.OurHtmlDom;
+			var sourceFolder = templatePage.Book.FolderPath;
+			var destFolder = FolderPath;
+			HtmlDom.CopyMissingStylesheetFiles(sourceDom, sourceFolder, destFolder);
 		}
 
 		/// <summary>
@@ -3002,6 +3063,32 @@ namespace Bloom.Book
 			}
 
 			return false;
+		}
+
+		public static string CollectionKind(Book book)
+		{
+			var collectionKind = "other";
+
+			if (book == null || book.HasFatalError)
+			{
+				// not exactly a kind of collection, but a convenient way to indicate these states,
+				// in which edit/make button should not show at all.
+				collectionKind = "error";
+			}
+			else if (book != null && book.IsEditable)
+			{
+				collectionKind = "main";
+			}
+			// Review: we're tentatively thinking that "delete book" and "open folder on disk"
+			// will both be enabled for all but factory collections. Currently, Bloom is more
+			// restrictive on delete: only books in main or "Books from BloomLibrary.org" can be deleted.
+			// But there doesn't seem to be any reason to prevent deleting books from e.g. a bloompack.
+			else if (book != null && BloomFileLocator.IsInstalledFileOrDirectory(book.CollectionSettings.FolderPath))
+			{
+				collectionKind = "factory";
+			}
+
+			return collectionKind;
 		}
 
 		public void DuplicatePage(IPage page, int numberToAdd=1)
@@ -3253,7 +3340,11 @@ namespace Bloom.Book
 		/// </summary>
 		internal XmlElement GetOrCreateUserModifiedStyleElementFromStorage()
 		{
-			var headElement = OurHtmlDom.Head;
+			return GetOrCreateUserModifiedStyleElementFromStorage(OurHtmlDom.Head);
+		}
+
+		public static XmlElement GetOrCreateUserModifiedStyleElementFromStorage(XmlElement headElement)
+		{
 			var userStyleElement = HtmlDom.GetUserModifiedStyleElement(headElement);
 			if (userStyleElement == null)
 				return HtmlDom.AddEmptyUserModifiedStylesNode(headElement);
@@ -3852,6 +3943,11 @@ namespace Bloom.Book
 		/// </remarks>
 		public static string MakeVersionCode(string fileContent, string filePath = null)
 		{
+			return RetryUtility.Retry(() => MakeVersionCodeInternal(fileContent, filePath));
+		}
+
+		private static string MakeVersionCodeInternal(string fileContent, string filePath = null)
+		{
 			//var debugBldr = new StringBuilder();
 			//string debugPath = null;
 			var simplified = fileContent;
@@ -3888,22 +3984,20 @@ namespace Bloom.Book
 					//	debugBldr.AppendLineFormat("hashing simplified HTML [{0} bytes] => {1}", bytes.Length, Convert.ToBase64String(sha2.Hash));
 					//}
 					var folder = Path.GetDirectoryName(filePath);
+					var filter = new BookFileFilter(folder)
+					{
+						IncludeFilesForContinuedEditing = true,
+						NarrationLanguages = null,	// include every narration language
+						WantVideo = true,
+						WantMusic = true
+					};
+					filter.AlwaysReject("meta.json");		// ignore since this stores currentTool and toolboxIsOpen, which are irrelevant
+					filter.AlwaysReject("video-placeholder.svg");	// ignore since placeholder file is provided as needed
+					filter.AlwaysReject("thumbnail.png");	// ignore since it seems to vary gratuitously (still check other thumbnail images)
 					// Order must be predictable but does not otherwise matter.
 					foreach (var path in Directory.GetFiles(folder, "*", SearchOption.AllDirectories).OrderBy(x => x))
 					{
-						var name = Path.GetFileName(path);
-						// ignore files like .lastUploadInfo: they may contain output from this function anyway
-						// these are "hidden" files on Linux.
-						if (name.StartsWith(".", StringComparison.Ordinal))
-							continue;
-						var ext = Path.GetExtension(path);
-						// PDF files are generated, we don't care whether they are identical.
-						// we don't care about .bak files either.
-						// .status files contain the output of this function among other team collection
-						// information; counting them would mean that writing a new status with the
-						// new version code would immediately change the next version code computed.
-						// .BloomBookOrder files are essentially copies of the meta.json files.
-						if (ext == ".pdf" || ext == ".status" || ext == ".bak" || ext == ".BloomBookOrder")
+						if (!filter.Filter(path))
 							continue;
 						if (path == filePath)
 							continue; // we already included a simplified version of the main HTML file
@@ -4213,13 +4307,12 @@ namespace Bloom.Book
 		/// <summary>
 		/// Re-compute and update all of the metadata features for the book
 		/// </summary>
-		/// <param name="allowedLanguages">If non-null, limits the calculation to only considering the languages specified. Applies only to language-specific features (e.g. blind and talkingBook. Does not apply to Sign Language or language-independent features</param>
-		internal void UpdateMetadataFeatures(
-			bool isBlindEnabled, bool isTalkingBookEnabled, bool isSignLanguageEnabled,
+		/// <param name="allowedLanguages">If non-null, limits the calculation to only considering the languages specified. Applies only to language-specific features
+		/// (e.g. talkingBook. Does not apply to Sign Language or language-independent features</param>
+		internal void UpdateMetadataFeatures(bool isTalkingBookEnabled, bool isSignLanguageEnabled,
 			IEnumerable<string> allowedLanguages)
 		{
 			// Language-specific features
-			UpdateBlindFeature(isBlindEnabled, allowedLanguages);
 			UpdateTalkingBookFeature(isTalkingBookEnabled, allowedLanguages);
 
 			// Sign Language is a special case - the SL videos are not marked up with lang attributes
@@ -4241,34 +4334,28 @@ namespace Bloom.Book
 		/// Updates the feature in bookInfo.metadata to indicate whether the book is accessible to the blind/visually impaired
 		/// </summary>
 		/// <param name="isEnabled">True to indicate the feature is enabled, or false for disabled (will clear the feature in the metadata)</param>
-		/// <param name="allowedLanguages">If non-null, limits the calculation to only considering the languages specified</param>
-		public void UpdateBlindFeature(bool isEnabled, IEnumerable<string> allowedLanguages)
+		public void UpdateBlindFeature(bool isEnabled)
 		{
 			if (!isEnabled)
 			{
-				BookInfo.MetaData.Feature_Blind_LangCodes = Enumerable.Empty<string>();
+				// Only clear the current L1. If we've earlier somehow claimed it for some other
+				// language, presumably it's still true.
+				BookInfo.MetaData.Feature_Blind_LangCodes =
+					BookInfo.MetaData.Feature_Blind_LangCodes.Except(new[] { Language1Tag });
 				return;
 			}
 
-			// Set the metadata feature that indicates a book is accessible to the blind. Our current automated
+			// Set the metadata feature that indicates a book is accessible to the blind. Our current default
 			// definition of this is the presence of image descriptions in the non-xmatter part of the book.
 			// This is very imperfect. Minimally, to be accessible to the blind, it should also be a talking book
 			// and everything, including image descriptions, should have audio; but talkingBook is a separate feature.
 			// Also we aren't checking that EVERY image has a description. What we have is therefore too weak,
 			// but EVERY image might be too strong...some may just be decorative. Then there are considerations
 			// like contrast and no essential information conveyed by color and other stuff that the DAISY code
-			// checks. If we were going to use this feature to actually help blind people find books they could
-			// use, we might well want a control (like in upload to BL) to allow the author to specify whether
-			// to claim the book is accessible to the blind. But currently this is just used for reporting the
-			// feature in analytics, so it's not worth bothering the author with something that has no obvious
-			// effect. If it has image descriptions, there's been at least some effort to make it accessible
-			// to the blind.
-			var langCodes = OurHtmlDom.GetLangCodesWithImageDescription();
-
-			if (allowedLanguages != null)
-				langCodes = langCodes.Intersect(allowedLanguages);
-
-			BookInfo.MetaData.Feature_Blind_LangCodes = langCodes.ToList();
+			// checks. Thus, we only actually claim this if the author has checked the "accessible to the blind"
+			// feature. Currently this can only be set for L1; the user could fudge by changing L1.
+			BookInfo.MetaData.Feature_Blind_LangCodes =
+				BookInfo.MetaData.Feature_Blind_LangCodes.Union(new[] { Language1Tag });
 		}
 
 		/// <summary>
@@ -4342,22 +4429,21 @@ namespace Bloom.Book
 		/// <summary>
 		/// Updates the feature in bookInfo.metadata to indicate whether the book contains comic pages.
 		/// These are now created with the Overlay Tool, but the feature retains the old name.
+		/// (But, we will only report it as a Comic book if the user didn't turn it off in the publish settings.)
 		/// </summary>
 		private void UpdateComicFeature()
 		{
-			BookInfo.MetaData.Feature_Comic = HasOverlayPages;
+			BookInfo.MetaData.Feature_Comic = HasOverlayPages && BookInfo.PublishSettings.BloomLibrary.Comic;
 		}
 
 		/// <summary>
 		/// Updates the feature in bookInfo.metadata to indicate whether the book is a motion book
+		/// (The publish setting is true by default, but only relevant...and the feature will only
+		/// be true...if the book actually has some motion settings.)
 		/// </summary>
 		private void UpdateMotionFeature()
 		{
-			// Conceptually, this *might* want to be a separate options from what you do in the BloomPUB publish.
-			// For example, motion is not currently one of your choices in the upload "features" setting, which
-			// is confusing. But in any case, at the moment, the BloomPUB screen is the way we give instructions
-			// to the Harvester for this setting, so this code is correct at the moment.
-			BookInfo.MetaData.Feature_Motion = BookInfo.PublishSettings.BloomPub.Motion;
+			BookInfo.MetaData.Feature_Motion = HasMotionPages && BookInfo.PublishSettings.BloomPub.PublishAsMotionBookIfApplicable;
 		}
 
 		/// <summary>
@@ -4569,6 +4655,17 @@ namespace Bloom.Book
 		public void AddHistoryRecordForLibraryUpload(string url)
 		{
 			BookHistory.AddEvent(this, BookHistoryEventType.Uploaded, "Book uploaded to Bloom Library" + (string.IsNullOrEmpty(url) ? "" : $" ({url})"));
+		}
+
+		public bool IsRequiredLanguage(string langCode)
+		{
+			// Languages which have been selected for display in this book need to be selected
+			return GetRequiredLanguages().Contains(langCode);
+		}
+
+		private IEnumerable<string> GetRequiredLanguages()
+		{
+			return new[] { BookData.Language1.Tag, Language2Tag, Language3Tag }.Where(l => !string.IsNullOrEmpty(l));
 		}
 	}
 }

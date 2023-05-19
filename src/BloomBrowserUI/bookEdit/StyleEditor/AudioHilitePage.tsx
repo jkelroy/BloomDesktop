@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { ThemeProvider } from "@mui/material/styles";
 import { kBloomYellow, lightTheme } from "../../bloomMaterialUITheme";
 import { Div } from "../../react_components/l10nComponents";
-import { MuiCheckbox } from "../../react_components/muiCheckBox";
+import { BloomCheckbox } from "../../react_components/BloomCheckBox";
 import StyleEditor from "./StyleEditor";
 import { useL10n } from "../../react_components/l10nHooks";
 import ReactDOM = require("react-dom");
@@ -57,7 +57,7 @@ export const AudioHilitePage: React.FunctionComponent<{
                 playing:
             </Div>
             <div css={colorRowCss}>
-                <MuiCheckbox
+                <BloomCheckbox
                     label="Background Color"
                     l10nKey="EditTab.FormatDialog.BackgroundColor"
                     checked={props.hiliteBgColor !== "transparent"}
@@ -67,12 +67,12 @@ export const AudioHilitePage: React.FunctionComponent<{
                             checked ? kBloomYellow : "transparent"
                         );
                     }}
-                ></MuiCheckbox>
+                ></BloomCheckbox>
                 <ColorDisplayButton
                     initialColor={props.hiliteBgColor}
                     localizedTitle={chooserTitleBg}
                     width={84}
-                    noAlphaSlider={true}
+                    transparency={false}
                     palette={BloomPalette.HighlightBackground}
                     onClose={(result, newColor) =>
                         props.onHilitePropsChanged(
@@ -83,7 +83,7 @@ export const AudioHilitePage: React.FunctionComponent<{
                 />
             </div>
             <div css={colorRowCss}>
-                <MuiCheckbox
+                <BloomCheckbox
                     label="Text Color"
                     l10nKey="EditTab.FormatDialog.TextColor"
                     checked={!!props.hiliteTextColor}
@@ -93,12 +93,12 @@ export const AudioHilitePage: React.FunctionComponent<{
                             props.hiliteBgColor
                         );
                     }}
-                ></MuiCheckbox>
+                ></BloomCheckbox>
                 <ColorDisplayButton
                     initialColor={props.hiliteTextColor || props.color}
                     localizedTitle={chooserTitleText}
                     width={84}
-                    noAlphaSlider={true}
+                    transparency={false}
                     palette={BloomPalette.Text}
                     onClose={(result, newColor) =>
                         props.onHilitePropsChanged(

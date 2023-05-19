@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2014-2018 SIL International
+// Copyright (c) 2014-2018 SIL International
 // This software is licensed under the MIT License (http://opensource.org/licenses/MIT)
 
 using System.Diagnostics;
@@ -18,6 +18,7 @@ using Bloom.web.controllers;
 using Newtonsoft.Json;
 using SIL.Reporting;
 using TemporaryFolder = SIL.TestUtilities.TemporaryFolder;
+using Moq;
 
 namespace BloomTests.web
 {
@@ -69,6 +70,33 @@ namespace BloomTests.web
 
 				// Verify
 				Assert.IsTrue(transaction.ReplyImagePath.Contains(".png"));
+			}
+		}
+
+		/// <summary>
+		/// Tests retrieving an image that is not at the root of book-preview, but rather inside a subdirectory.
+		/// </summary>
+		[Test]
+		public void CanGetActivityImage()
+		{
+			// Setup //
+
+			// Mock up server.CurrentBook.FolderPath
+			var testRootDir = Path.Combine(_folder.Path, "CanGetActivityImage");
+			var mockBook = new Mock<Bloom.Book.Book>();
+			mockBook.Setup(m => m.FolderPath).Returns(testRootDir);
+
+			using (var server = CreateBloomServer(mockBook.Object))
+			using (var file = MakeTempActivityImage(testRootDir))
+			{
+				var path = "book-preview/resources/image.png";
+				var transaction = new PretendRequestInfo(BloomServer.ServerUrlWithBloomPrefixEndingInSlash + path);
+
+				// Execute //
+				server.MakeReply(transaction);
+
+				// Verify //
+				Assert.AreEqual(0, transaction.StatusCode);	// or 200 would be ideal, but currently the code surprisingly returns 0.  404 would definitely be a failure though!
 			}
 		}
 
@@ -280,11 +308,13 @@ namespace BloomTests.web
 			internal string translated { get; set; }
 		}
 
-		private BloomServer CreateBloomServer(BookInfo info = null)
+		private BloomServer CreateBloomServer(BookInfo info = null) => CreateBloomServer(new Bloom.Book.Book(info));
+
+		private BloomServer CreateBloomServer(Bloom.Book.Book book)
 		{
 			var bookSelection = new BookSelection();
 			var collectionSettings = new CollectionSettings();
-			bookSelection.SelectBook(new Bloom.Book.Book(info));
+			bookSelection.SelectBook(book);
 			return new BloomServer(new RuntimeImageProcessor(new BookRenamedEvent()), bookSelection, collectionSettings, _fileLocator);
 		}
 
@@ -299,6 +329,20 @@ namespace BloomTests.web
 			return file;
 		}
 
+		private TempFile MakeTempActivityImage(string testRootDir)
+		{
+			var directory = Path.Combine(testRootDir, "resources");
+			Directory.CreateDirectory(directory); 
+			var tempFileRelativePath = Path.Combine(directory, "image.png");
+			RobustFile.Create(tempFileRelativePath);
+			var file = TempFile.TrackExisting(tempFileRelativePath);
+
+			// No need to create the file contents right now.
+			// Better (for unit tests) to do the minimum IO needed to make the test pass.
+
+			return file;
+		}
+
 		[Test]
 		public void CanRetrieveContentOfFakeTempFile_ButOnlyUntilDisposed()
 		{
@@ -308,7 +352,7 @@ namespace BloomTests.web
 				var dom = new HtmlDom(html);
 				dom.BaseForRelativePaths =_folder.Path.ToLocalhost();
 				string url;
-				using (var fakeTempFile = BloomServer.MakeSimulatedPageFileInBookFolder(dom))
+				using (var fakeTempFile = BloomServer.MakeInMemoryHtmlFileInBookFolder(dom))
 				{
 					url = fakeTempFile.Key;
 					var transaction = new PretendRequestInfo(url);
@@ -335,15 +379,15 @@ namespace BloomTests.web
 		}
 
 		[Test]
-		[TestCase(BloomServer.SimulatedPageFileSource.JustCheckingPage, false)]
-		[TestCase(BloomServer.SimulatedPageFileSource.Frame, true)]
-		[TestCase(BloomServer.SimulatedPageFileSource.Nav, true)]
-		[TestCase(BloomServer.SimulatedPageFileSource.Normal, true)]
-		[TestCase(BloomServer.SimulatedPageFileSource.Pagelist, false)]
-		[TestCase(BloomServer.SimulatedPageFileSource.Preview, true)]
-		[TestCase(BloomServer.SimulatedPageFileSource.Pub, true)]
-		[TestCase(BloomServer.SimulatedPageFileSource.Thumb, false)]
-		public void ServerKnowsDifferenceBetweenRealAndThumbVideos(BloomServer.SimulatedPageFileSource source, bool expectVideo)
+		[TestCase(InMemoryHtmlFileSource.JustCheckingPage, false)]
+		[TestCase(InMemoryHtmlFileSource.Frame, true)]
+		[TestCase(InMemoryHtmlFileSource.Nav, true)]
+		[TestCase(InMemoryHtmlFileSource.Normal, true)]
+		[TestCase(InMemoryHtmlFileSource.Pagelist, false)]
+		[TestCase(InMemoryHtmlFileSource.Preview, true)]
+		[TestCase(InMemoryHtmlFileSource.Pub, true)]
+		[TestCase(InMemoryHtmlFileSource.Thumb, false)]
+		public void ServerKnowsDifferenceBetweenRealAndThumbVideos(InMemoryHtmlFileSource source, bool expectVideo)
 		{
 			using (var server = CreateBloomServer())
 			{
@@ -370,7 +414,7 @@ namespace BloomTests.web
 						</div>
 					</body></html>";
 				var dom = new HtmlDom(html) {BaseForRelativePaths = _folder.Path.ToLocalhost()};
-				using (var fakeTempFile = BloomServer.MakeSimulatedPageFileInBookFolder(dom, true, true, source))
+				using (var fakeTempFile = BloomServer.MakeInMemoryHtmlFileInBookFolder(dom, true, true, source))
 				{
 					var url = fakeTempFile.Key;
 					var transaction = new PretendRequestInfo(url);
@@ -437,7 +481,7 @@ namespace BloomTests.web
 			PretendRequestInfo transaction;
 			using (var server = CreateBloomServer())
 			{
-				using (var fakeTempFile = BloomServer.MakeSimulatedPageFileInBookFolder(dom, simulateCallingFromJavascript))
+				using (var fakeTempFile = BloomServer.MakeInMemoryHtmlFileInBookFolder(dom, simulateCallingFromJavascript))
 				{
 					var url = fakeTempFile.Key;
 					transaction = new PretendRequestInfo(url, forPrinting: false, forSrcAttr: simulateCallingFromJavascript);
@@ -698,6 +742,51 @@ namespace BloomTests.web
 				server.MakeReply(enc2Transaction);
 				Assert.That(enc2Transaction.ReplyContents, Is.EqualTo(testData));
 			}
+		}
+
+		[Test]
+		public void GetLocalPathRoot_UrlToFileInRoot_ReturnsDirectoryAsRoot()
+		{
+			string inputPath = "book-preview/image.png";
+
+			var runner = new Microsoft.VisualStudio.TestTools.UnitTesting.PrivateType(typeof(BloomServer));
+			var result = (string)runner.InvokeStatic("GetLocalPathRoot", inputPath);
+
+			Assert.That(result, Is.EqualTo("book-preview"));
+		}
+
+		[Test]
+		public void GetLocalPathRoot_UrlWithSubdirectories_ReturnsFirstDirectoryAsRoot()
+		{
+			string inputPath = "book-preview/activities/Title/resources/image.png";
+
+			var runner = new Microsoft.VisualStudio.TestTools.UnitTesting.PrivateType(typeof(BloomServer));
+			var result = (string)runner.InvokeStatic("GetLocalPathRoot", inputPath);
+
+			Assert.That(result, Is.EqualTo("book-preview"));
+		}
+
+		[Test]
+		public void GetLocalPathAfterRoot_UrlToFileInRoot_ReturnsFile()
+		{
+			string inputPath = "book-preview/image.png";
+
+			var runner = new Microsoft.VisualStudio.TestTools.UnitTesting.PrivateType(typeof(BloomServer));
+			var result = (string)runner.InvokeStatic("GetLocalPathAfterRoot", inputPath);
+
+
+			Assert.That(result, Is.EqualTo("image.png"));
+		}
+
+		[Test]
+		public void GetLocalPathAfterRoot_UrlWithSubdirectories_ReturnsFirstDirectoryAsRoot()
+		{
+			string inputPath = "book-preview/activities/Title/resources/image.png";
+
+			var runner = new Microsoft.VisualStudio.TestTools.UnitTesting.PrivateType(typeof(BloomServer));
+			var result = (string)runner.InvokeStatic("GetLocalPathAfterRoot", inputPath);
+
+			Assert.That(result, Is.EqualTo("activities/Title/resources/image.png"));
 		}
 	}
 }

@@ -58,6 +58,8 @@ namespace Bloom
 				// is cached.
 				if (_workspaceView.InEditMode)
 					signLanguageApi.CheckForChangedVideoOnActivate(sender, args);
+				if (_workspaceView.InCollectionTab)
+					_workspaceView.CheckForCollectionUpdates();
 			};
 			Deactivate += (sender, args) => signLanguageApi.DeactivateTime = DateTime.Now;
 
@@ -243,6 +245,17 @@ namespace Bloom
 		private void On1024x586(object sender, EventArgs e)
 		{
 			Size = new Size(1024, 586);
+		}
+
+		public static void ComeToFront()
+		{
+			if (GetShellOrOtherOpenForm() is Shell shell)
+			{
+				shell.Invoke((Action)(() =>
+				{
+					shell.ReallyComeToFront();
+				}));
+			}
 		}
 
 		/// <summary>

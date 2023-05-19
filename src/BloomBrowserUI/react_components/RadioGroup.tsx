@@ -9,7 +9,7 @@ import {
 // This is a "controlled component".
 
 /* Example use:
-    const [method, setMethod] = useApiString("publish/android/method", "wifi");
+    const [method, setMethod] = useApiString("publish/bloompub/method", "wifi");
     return(
         <ConciseRadioGroup
           value={method}
@@ -30,8 +30,7 @@ export const RadioGroup: React.FunctionComponent<{
     onChange: (method: string) => void;
 }> = props => {
     return (
-        //this margin='dense' doesn't seem to do anything?
-        <FormControl margin="dense">
+        <FormControl>
             <MuiRadioGroup
                 value={props.value}
                 onChange={(event, newValue) => props.onChange(newValue)}

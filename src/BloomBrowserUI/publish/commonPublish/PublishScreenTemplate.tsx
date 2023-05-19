@@ -8,6 +8,7 @@ import {
     kOptionPanelBackgroundColor
 } from "../../bloomMaterialUITheme";
 import { hookupLinkHandler } from "../../utils/linkHandler";
+import { SelectedBookProvider } from "../../app/SelectedBookContext";
 
 export const PublishScreenTemplate: React.FunctionComponent<{
     bannerRightSideControls?: React.ReactNode;
@@ -17,47 +18,51 @@ export const PublishScreenTemplate: React.FunctionComponent<{
     bannerDescriptionL10nId?: string;
     // This one "node" should include all the publishing mode options as well as the Help links.
     optionsPanelContents?: React.ReactNode;
+    bottomBanner?: React.ReactNode;
 }> = props => {
     // Tells CSharp land to handle our external links correctly (by opening in the system browser)
     React.useEffect(() => hookupLinkHandler(), []);
 
     return (
-        <div
-            id="publishScreenTemplate"
-            css={css`
-                display: flex;
-                height: 100%;
-                width: 100%;
-                flex-direction: column;
-                overflow: hidden;
-                a {
-                    color: ${kBloomBlue};
-                }
-            `}
-        >
-            <PublishScreenBanner
-                css={css`
-                    flex: 1; // The banner stays relatively small compared to the rest of the screen
-                `}
-                titleEnglish={props.bannerTitleEnglish}
-                titleL10nId={props.bannerTitleL10nId}
-                descriptionMarkdown={props.bannerDescriptionMarkdown}
-                descriptionL10nId={props.bannerDescriptionL10nId}
-            >
-                {props.bannerRightSideControls}
-            </PublishScreenBanner>
+        <SelectedBookProvider>
             <div
+                id="publishScreenTemplate"
                 css={css`
-                    flex: 5; // The part under the banner takes up most of the space.
                     display: flex;
-                    flex-direction: row;
-                    min-height: 0; // Enables scrolling to work correctly in the sub-containers.
+                    height: 100%;
+                    width: 100%;
+                    flex-direction: column;
+                    overflow: hidden;
+                    a {
+                        color: ${kBloomBlue};
+                    }
                 `}
             >
-                <MainPanel>{props.children}</MainPanel>
-                <OptionPanel>{props.optionsPanelContents}</OptionPanel>
+                <PublishScreenBanner
+                    css={css`
+                        flex: 1; // The banner stays relatively small compared to the rest of the screen
+                    `}
+                    titleEnglish={props.bannerTitleEnglish}
+                    titleL10nId={props.bannerTitleL10nId}
+                    descriptionMarkdown={props.bannerDescriptionMarkdown}
+                    descriptionL10nId={props.bannerDescriptionL10nId}
+                >
+                    {props.bannerRightSideControls}
+                </PublishScreenBanner>
+                <div
+                    css={css`
+                        flex: 5; // The part under the banner takes up most of the space.
+                        display: flex;
+                        flex-direction: row;
+                        min-height: 0; // Enables scrolling to work correctly in the sub-containers.
+                    `}
+                >
+                    <MainPanel>{props.children}</MainPanel>
+                    <OptionPanel>{props.optionsPanelContents}</OptionPanel>
+                </div>
+                {props.bottomBanner}
             </div>
-        </div>
+        </SelectedBookProvider>
     );
 };
 

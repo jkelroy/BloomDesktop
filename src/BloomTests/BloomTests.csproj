@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="..\..\packages\SIL.Windows.Forms.Keyboarding.12.0.1-beta0003\build\SIL.Windows.Forms.Keyboarding.props" Condition="Exists('..\..\packages\SIL.Windows.Forms.Keyboarding.12.0.1-beta0003\build\SIL.Windows.Forms.Keyboarding.props')" />
   <Import Project="..\..\packages\icu.net.2.8.1\build\icu.net.props" Condition="Exists('..\..\packages\icu.net.2.8.1\build\icu.net.props')" />
@@ -310,14 +310,17 @@
     <Compile Include="Book\BookFileFilterTests.cs" />
     <Compile Include="Collection\CollectionFilterTests.cs" />
     <Compile Include="FontProcessingTests.cs" />
+    <Compile Include="Publish\EpubMakerReadiumManifestTests.cs" />
     <Compile Include="Publish\ExportFixedLayoutEpubTests.cs" />
     <Compile Include="Publish\Video\RecordVideoWindowTests.cs" />
     <Compile Include="Publish\Video\ResolutionTests.cs" />
     <Compile Include="Spreadsheet\InternalSpreadsheetTests.cs" />
     <Compile Include="Spreadsheet\SpreadsheetAudioImportTests.cs" />
     <Compile Include="Spreadsheet\SpreadsheetAudioTests.cs" />
+    <Compile Include="Spreadsheet\SpreadsheetExportVideosAndWidgetsTests.cs" />
     <Compile Include="Spreadsheet\SpreadSheetImageDescriptionTests.cs" />
     <Compile Include="Spreadsheet\SpreadsheetImporterWithBookTests.cs" />
+    <Compile Include="Spreadsheet\SpreadsheetPageTypeImportTests.cs" />
     <Compile Include="Spreadsheet\TestSpreadsheetImporter.cs" />
     <Compile Include="Utils\BloomArchiveFileTests.cs" />
     <Compile Include="Utils\BloomTarArchiveTests.cs" />

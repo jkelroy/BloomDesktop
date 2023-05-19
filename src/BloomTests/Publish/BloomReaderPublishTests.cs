@@ -7,7 +7,7 @@ using System.Linq;
 using Bloom;
 using Bloom.Book;
 using Bloom.FontProcessing;
-using Bloom.Publish.Android;
+using Bloom.Publish.BloomPub;
 using Bloom.web;
 using BloomTests.Book;
 using ICSharpCode.SharpZipLib.Zip;
@@ -66,7 +66,7 @@ namespace BloomTests.Publish
 
 			using (var bloomdTempFile = TempFile.WithFilenameInTempFolder(testBook.Title + BloomPubMaker.BloomPubExtensionWithDot))
 			{
-				BloomPubMaker.CreateBloomPub(new AndroidPublishSettings(), bloomdTempFile.Path, testBook, _bookServer, new NullWebSocketProgress());
+				BloomPubMaker.CreateBloomPub(new BloomPubPublishSettings(), bloomdTempFile.Path, testBook, _bookServer, new NullWebSocketProgress());
 				Assert.AreEqual(testBook.Title + BloomPubMaker.BloomPubExtensionWithDot,
 					Path.GetFileName(bloomdTempFile.Path));
 			}
@@ -113,7 +113,6 @@ namespace BloomTests.Publish
 					// A convenient place to check defaults on meta.json
 					var meta = BookMetaData.FromString(GetEntryContents(zip, "meta.json"));
 					Assert.That(meta.Feature_SignLanguage, Is.False);
-					Assert.That(meta.Feature_Blind, Is.False);
 					Assert.That(meta.Feature_TalkingBook, Is.False);
 					Assert.That(meta.Feature_Motion, Is.False);
 					Assert.That(meta.BloomdVersion, Is.EqualTo(1));
@@ -253,8 +252,9 @@ namespace BloomTests.Publish
             <div style='min-height: 42px;' class='split-pane horizontal-percent'>
                 <div class='split-pane-component position-top' style='bottom: 50%'>
                     <div class='split-pane-component-inner'>
-                        <div title='aor_BRD11.png 41.36 KB 1500 x 581 716 DPI (should be 300-600) Bit Depth: 32' class='bloom-imageContainer bloom-leadingElement'>
-                            <img data-license='cc-by-sa' data-creator='' data-copyright='Copyright SIL International 2009' src='aor_BRD11.png' alt='Two birds on a branch with beak tips touching'></img>
+                        <div title='aor_BRD11.png 41.36 KB 1500 x 581 716 DPI (should be 300-600) Bit Depth: 32' class='bloom-imageContainer bloom-leadingElement'
+							data-initialrect='0.0024509803921568627 0.002967359050445104 0.75 0.7507418397626113' data-finalrect='0.37745098039215685 0.12759643916913946 0.5 0.5014836795252225'>
+							< img data-license='cc-by-sa' data-creator='' data-copyright='Copyright SIL International 2009' src='aor_BRD11.png' alt='Two birds on a branch with beak tips touching'></img>
 
                             <div class='bloom-translationGroup bloom-imageDescription bloom-trailingElement'>
                                 <div data-audiorecordingmode='Sentence' data-languagetipcontent='English' aria-label='false' role='textbox' spellcheck='true' tabindex='0' class='bloom-editable normal-style bloom-content1 bloom-visibility-code-on' contenteditable='true' lang='xyz'>
@@ -315,7 +315,7 @@ namespace BloomTests.Publish
 						@"this is a fake for testing");
 					File.WriteAllText(Path.Combine(audioFolder, "i2335f5ae-2cff-4029-a85c-951cc33256a4.mp3"),
 						@"this is a fake for testing");
-					testBook.BookInfo.PublishSettings.BloomPub.Motion = true;
+					testBook.BookInfo.PublishSettings.BloomPub.PublishAsMotionBookIfApplicable = true;
 					testBook.BookInfo.Save();
 				},
 				assertionsOnResultingHtmlString: html =>
@@ -335,7 +335,6 @@ namespace BloomTests.Publish
 					var zip = paramObj.ZipFile;
 					var meta = BookMetaData.FromString(GetEntryContents(zip, "meta.json"));
 					Assert.That(meta.Feature_TalkingBook, Is.True);
-					Assert.That(meta.Feature_Blind, Is.True);
 					Assert.That(meta.Feature_Motion, Is.True);
 				},
 				languagesToInclude: new HashSet<string>(new[] {"xyz", "de", "es"}));
@@ -1308,20 +1307,20 @@ namespace BloomTests.Publish
 				Assert.That(File.Exists(Path.Combine(testBook.FolderPath, timesNewRomanFileName)));
 				Assert.That(File.Exists(Path.Combine(testBook.FolderPath, calibreFileName)));
 				Assert.That(stubProgress.MessagesNotLocalized, Has.Member("Checking Times New Roman font: License OK for embedding."));
-				// 0.0 megs is culture-specific; ignore that part.
+				// 0.00 megs is culture-specific; ignore that part.
 				Assert.That(stubProgress.MessagesNotLocalized.Any(
-					s => s.StartsWith("Embedding font Times New Roman at a cost of 0") && s.EndsWith("0 megs")));
+					s => s.StartsWith("Embedding font Times New Roman at a cost of 0") && s.EndsWith("00 megs")));
 				Assert.That(stubProgress.MessagesNotLocalized, Has.Member("This book has text in a font named \"Wen Yei\". Bloom cannot publish this font's format (.ttc)."));
-				Assert.That(stubProgress.MessagesNotLocalized, Has.Member("Bloom will substitute \"Andika New Basic\" instead."));
+				Assert.That(stubProgress.MessagesNotLocalized, Has.Member("Bloom will substitute \"Andika\" instead."));
 				Assert.That(stubProgress.MessagesNotLocalized, Has.Member("Checking Calibre font: License OK for embedding."));
-				// 0.2 megs is culture-specific.
+				// 0.20 megs is culture-specific.
 				Assert.That(stubProgress.MessagesNotLocalized.Any(
-					s => s.StartsWith("Embedding font Calibre at a cost of 0") && s.EndsWith("2 megs")));
+					s => s.StartsWith("Embedding font Calibre at a cost of 0") && s.EndsWith("20 megs")));
 
 				Assert.That(stubProgress.MessagesNotLocalized, Has.Member("This book has text in a font named \"NotAllowed\". The license for \"NotAllowed\" does not permit Bloom to embed the font in the book."));
-				Assert.That(stubProgress.MessagesNotLocalized, Has.Member("Bloom will substitute \"Andika New Basic\" instead."));
+				Assert.That(stubProgress.MessagesNotLocalized, Has.Member("Bloom will substitute \"Andika\" instead."));
 				Assert.That(stubProgress.MessagesNotLocalized, Has.Member("This book has text in a font named \"NotFound\", but Bloom could not find that font on this computer."));
-				Assert.That(stubProgress.MessagesNotLocalized, Has.Member("Bloom will substitute \"Andika New Basic\" instead."));
+				Assert.That(stubProgress.MessagesNotLocalized, Has.Member("Bloom will substitute \"Andika\" instead."));
 
 				var fontSourceRulesPath = Path.Combine(testBook.FolderPath, "fonts.css");
 				var fontSource = RobustFile.ReadAllText(fontSourceRulesPath);
@@ -1338,14 +1337,14 @@ namespace BloomTests.Publish
 				var styleText = styleNode.InnerXml;
 				Assert.That(styleText.Contains(".Times-style[lang='tpi'] { font-family: Times New Roman ! important; font-size: 12pt  }"), Is.True, "Times New Roman reference unchanged");
 				Assert.That(styleText.Contains("Wen Yei"), Is.False, "Wen Yei reference has been removed");
-				Assert.That(styleText.Contains(".Times-style[lang='zh'] { font-family: Andika New Basic !important; font-size: 12pt  }"), Is.True, "Wen Yei reference replaced with Andika New Basic");
+				Assert.That(styleText.Contains(".Times-style[lang='zh'] { font-family: Andika !important; font-size: 12pt  }"), Is.True, "Wen Yei reference replaced with Andika");
 
 				var customCss = File.ReadAllText(customStylesPath);
 				Assert.That(customCss.Contains(".someStyle {font-family:'Calibre';}"), Is.True, "Calibre reference unchanged");
 				Assert.That(customCss.Contains("NotFound"), Is.False, "NotFound reference has been removed");
-				Assert.That(customCss.Contains(".otherStyle {font-family: 'Andika New Basic';}"), Is.True, "NotFound reference replaced with Andika New Basic");
+				Assert.That(customCss.Contains(".otherStyle {font-family: 'Andika';}"), Is.True, "NotFound reference replaced with Andika");
 				Assert.That(customCss.Contains("NotAllowed"), Is.False, "NotAllowed reference has been removed");
-				Assert.That(customCss.Contains(".yetAnother {font-family: 'Andika New Basic';}"), Is.True, "NotAllowed reference replaced with Andika New Basic");
+				Assert.That(customCss.Contains(".yetAnother {font-family: 'Andika';}"), Is.True, "NotAllowed reference replaced with Andika");
 			}
 		}
 
@@ -1381,10 +1380,10 @@ namespace BloomTests.Publish
 
 			using (var bloomdTempFile = TempFile.WithFilenameInTempFolder(testBook.Title + BloomPubMaker.BloomPubExtensionWithDot))
 			{
-				var androidPublishSettings = new AndroidPublishSettings() { Motion = testBook.BookInfo.PublishSettings.BloomPub.Motion};
+				var bloomPubPublishSettings = new BloomPubPublishSettings() { PublishAsMotionBookIfApplicable = testBook.BookInfo.PublishSettings.BloomPub.PublishAsMotionBookIfApplicable};
 				if (languagesToInclude != null)
-					androidPublishSettings.LanguagesToInclude = languagesToInclude;
-				BloomPubMaker.CreateBloomPub(settings: androidPublishSettings, outputPath: bloomdTempFile.Path, bookFolderPath: testBook.FolderPath, bookServer: _bookServer,
+					bloomPubPublishSettings.LanguagesToInclude = languagesToInclude;
+				BloomPubMaker.CreateBloomPub(settings: bloomPubPublishSettings, outputPath: bloomdTempFile.Path, bookFolderPath: testBook.FolderPath, bookServer: _bookServer,
 					progress: new NullWebSocketProgress(), isTemplateBook: false,
 					creator: creator);
 				var zip = new ZipFile(bloomdTempFile.Path);
@@ -1398,7 +1397,7 @@ namespace BloomTests.Publish
 					using (var extraTempFile =
 						TempFile.WithFilenameInTempFolder(testBook.Title + "2" + BloomPubMaker.BloomPubExtensionWithDot))
 					{
-						BloomPubMaker.CreateBloomPub(androidPublishSettings, extraTempFile.Path, testBook, _bookServer, new NullWebSocketProgress());
+						BloomPubMaker.CreateBloomPub(bloomPubPublishSettings, extraTempFile.Path, testBook, _bookServer, new NullWebSocketProgress());
 						zip = new ZipFile(extraTempFile.Path);
 						assertionsOnRepeat(zip);
 					}

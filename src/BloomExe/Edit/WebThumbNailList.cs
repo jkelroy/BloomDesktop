@@ -7,18 +7,13 @@ using System.Drawing;
 using System.Text;
 using System.Windows.Forms;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Xml;
 using Bloom.Book;
 using Bloom.Api;
 using Bloom.MiscUI;
 using Bloom.Utils;
 using Bloom.web;
-using Gecko;
-using SIL.Xml;
 using L10NSharp;
 using SIL.IO;
-using SIL.Reporting;
 
 namespace Bloom.Edit
 {
@@ -116,49 +111,18 @@ namespace Bloom.Edit
 			_baseHtml = RobustFile.ReadAllText(frame, Encoding.UTF8).Replace("DarkGray", backColor);
 		}
 
-		public Func<object, IMenuItemAdder, bool> ContextMenuProvider
-		{
-			get { return _browser.ContextMenuProvider; }
-			set { _browser.ContextMenuProvider = value; }
-		}
-
 		protected bool ReallyDesignMode =>
 			(base.DesignMode || GetService(typeof(IDesignerHost)) != null) ||
 			(LicenseManager.UsageMode == LicenseUsageMode.Designtime);
 
-		private Stopwatch _stopwatch;
-		private int _reportsSent;
 		private void InvokePageSelectedChanged(IPage page)
 		{
 			EventHandler handler = PageSelectedChanged;
-
-			// We're not really sure which of the two times will be shorter,
-			// since there is SOME stuff that happens in C# after telling the browser
-			// to navigate to the new page. This counts how many of the two reports have
-			// been sent, so we can stop the watch when we're done with it.
-			_reportsSent = 0;
-
 			if (handler != null && /*REVIEW */ page != null)
 			{
-				_stopwatch = Stopwatch.StartNew();
-				Model.EditPagePainted += HandleEditPagePainted;
 				handler(page, null);
-				var time = _stopwatch.ElapsedMilliseconds;
-				if (_reportsSent++ >= 2)
-					_stopwatch.Stop();
-				TroubleShooterDialog.Report($"C# part of page change took {time} milliseconds");
 			}
 		}
-
-		void HandleEditPagePainted(object sender, EventArgs e)
-		{
-			var paintTime = _stopwatch.ElapsedMilliseconds;
-			if (_reportsSent++ >= 2)
-				_stopwatch.Stop();
-			TroubleShooterDialog.Report($"page change to paint complete took {paintTime} milliseconds");
-			Model.EditPagePainted -= HandleEditPagePainted;
-		}
-
 
 		public RelocatePageEvent RelocatePageEvent { get; set; }
 		public void EmptyThumbnailCache()
@@ -282,7 +246,7 @@ namespace Bloom.Edit
 
 			_baseForRelativePaths = pageListDom.BaseForRelativePaths;
 			if (this.IsHandleCreated) // somehow we can get here when the edit view is not active at all
-				Invoke((Action)(()=>_browser.Navigate(pageListDom, source:BloomServer.SimulatedPageFileSource.Pagelist)));
+				Invoke((Action)(()=>_browser.Navigate(pageListDom, source:InMemoryHtmlFileSource.Pagelist)));
 			return result.ToList();
 		}
 
@@ -349,41 +313,6 @@ namespace Bloom.Edit
 				_browser.OnBrowserClick -= Browser_Click;
 				Model.GetEditingBrowser().OnBrowserClick -= Browser_Click;
 			}
-		}
-
-		/// <summary>
-		/// Given a particular node (typically one the user right-clicked), determine whether it is clearly part of
-		/// a particular page (inside a PageContainerClass div).
-		/// If so, return the corresponding Page object. If not, return null.
-		/// </summary>
-		/// <param name="clickNode"></param>
-		/// <returns></returns>
-		internal IPage GetPageContaining(GeckoNode clickNode)
-		{
-			bool gotPageElt = false;
-			for (var elt = clickNode as GeckoElement ?? clickNode.ParentElement; elt != null; elt = elt.ParentElement)
-			{
-				var classAttr = elt.Attributes["class"];
-				if (classAttr != null)
-				{
-					var className = " " + classAttr.NodeValue + " ";
-					if (className.Contains(" " + PageContainerClass + " "))
-					{
-						// Click is inside a page element: can succeed. But we want to keep going to find the parent grid
-						// element that has the ID we're looking for.
-						gotPageElt = true;
-						continue;
-					}
-					if (className.Contains(" " + GridItemClass + " "))
-					{
-						if (!gotPageElt)
-							return null; // clicked somewhere in a grid, but not actually on the page: intended page may be ambiguous.
-						var id = elt.Attributes["id"].NodeValue;
-						return PageListApi?.PageFromId(id);
-					}
-				}
-			}
-			return null;
 		}
 
 		// This gets invoked by Javascript (via the PageListApi) when it determines that a particular page has been moved.

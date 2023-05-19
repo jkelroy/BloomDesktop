@@ -11,7 +11,7 @@ import {
 } from "../../../react_components/BloomDialog/BloomDialog";
 import { DialogCancelButton } from "../../../react_components/BloomDialog/commonDialogComponents";
 import { useL10n } from "../../../react_components/l10nHooks";
-import { MuiCheckbox } from "../../../react_components/muiCheckBox";
+import { BloomCheckbox } from "../../../react_components/BloomCheckBox";
 import TextField from "@mui/material/TextField";
 import { WhatsThisBlock } from "../../../react_components/helpLink";
 import { BloomPalette } from "../../../react_components/color-picking/bloomPalette";
@@ -70,7 +70,7 @@ export const InnerBulkBloomPubDialog: React.FunctionComponent<{
     // We'll send the new state of the parameters if and when they click the "make" button.
     const [params, setParams] = useApiOneWayState<
         IBulkBloomPUBPublishParams | undefined
-    >("publish/android/file/bulkSaveBloomPubsParams", undefined);
+    >("publish/bloompub/file/bulkSaveBloomPubsParams", undefined);
 
     const bookshelfUrlKey = useApiData<any>("settings/bookShelfData", "")
         ?.defaultBookshelfUrlKey;
@@ -109,7 +109,7 @@ export const InnerBulkBloomPubDialog: React.FunctionComponent<{
             {!!params && (
                 <DialogMiddle>
                     <WhatsThisBlock url="https://docs.bloomlibrary.org/bloom-reader-shelves">
-                        <MuiCheckbox
+                        <BloomCheckbox
                             label="Produce a .bloomshelf file"
                             checked={
                                 bookshelfUrlKey && params.makeBookshelfFile
@@ -122,10 +122,7 @@ export const InnerBulkBloomPubDialog: React.FunctionComponent<{
                                     makeBookshelfFile: !params.makeBookshelfFile
                                 })
                             }
-                            deprecatedVersionWhichDoesntEnsureMultilineLabelsWork={
-                                true
-                            }
-                        ></MuiCheckbox>
+                        ></BloomCheckbox>
                         <ConditionallyEnabledBlock
                             enable={
                                 params.makeBookshelfFile && !!bookshelfUrlKey
@@ -177,7 +174,7 @@ export const InnerBulkBloomPubDialog: React.FunctionComponent<{
                                         <ColorDisplayButton
                                             initialColor={params.bookshelfColor}
                                             localizedTitle={colorPickerTitle}
-                                            noAlphaSlider={true}
+                                            transparency={false}
                                             palette={
                                                 BloomPalette.BloomReaderBookshelf
                                             }
@@ -225,7 +222,7 @@ export const InnerBulkBloomPubDialog: React.FunctionComponent<{
                             margin-top: ${kBlockSeparation};
                         `}
                     >
-                        <MuiCheckbox
+                        <BloomCheckbox
                             label="Compress into a single .bloombundle file"
                             checked={params.makeBloomBundle}
                             l10nKey="PublishTab.BulkBloomPub.MakeBloomBundle"
@@ -235,10 +232,7 @@ export const InnerBulkBloomPubDialog: React.FunctionComponent<{
                                     makeBloomBundle: !!checked
                                 });
                             }}
-                            deprecatedVersionWhichDoesntEnsureMultilineLabelsWork={
-                                true
-                            }
-                        ></MuiCheckbox>
+                        ></BloomCheckbox>
                     </WhatsThisBlock>
                 </DialogMiddle>
             )}
@@ -250,7 +244,7 @@ export const InnerBulkBloomPubDialog: React.FunctionComponent<{
                     variant={"contained"}
                     onClick={() => {
                         postData(
-                            "publish/android/file/bulkSaveBloomPubs",
+                            "publish/bloompub/file/bulkSaveBloomPubs",
                             params
                         );
                         props.closeDialog();

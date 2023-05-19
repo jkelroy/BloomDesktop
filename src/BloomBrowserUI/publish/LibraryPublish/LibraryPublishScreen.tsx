@@ -13,10 +13,11 @@ import {
 } from "../commonPublish/PublishScreenBaseComponents";
 
 import { LibraryPublishSteps } from "./LibraryPublishSteps";
-import { PublishFeaturesGroup } from "../ReaderPublish/PublishFeaturesGroup";
-import { LanguageGroup } from "../commonPublish/LanguageGroup";
-import { AudioGroup } from "../commonPublish/AudioGroup";
+import { PublishFeaturesGroup } from "../commonPublish/PublishFeaturesGroup";
 import PublishScreenTemplate from "../commonPublish/PublishScreenTemplate";
+import { PublishLanguagesGroup } from "../commonPublish/PublishLanguagesGroup";
+import { CoverColorGroup } from "../commonPublish/CoverColorGroup";
+import { useState } from "react";
 
 export const kWebSocketContext = "libraryPublish";
 
@@ -27,11 +28,36 @@ export const LibraryPublishScreen = () => {
         </PublishPanel>
     );
 
+    const [generation, setGeneration] = useState(0);
+
     const settingsPanel = (
         <SettingsPanel>
-            <AudioGroup />
-            <LanguageGroup />
-            <PublishFeaturesGroup />
+            <PublishLanguagesGroup
+                onChange={() => {
+                    // Forces features group to re-evaluate whether this will be a talking book.
+                    setGeneration(old => old + 1);
+                }}
+            />
+            <PublishFeaturesGroup generation={generation} />
+            <CoverColorGroup />
+
+            {/*
+                <MuiCheckbox
+                label={
+                    <React.Fragment>
+                        <img src="/bloom/publish/LibraryPublish/DRAFT-Stamp.svg" />
+                        <Span l10nKey="PublishTab.Upload.Draft">
+                            Show this book only to reviewers with whom I
+                            share the URL of this book.
+                        </Span>
+                    </React.Fragment>
+                }
+                checked={false} //TODO
+                onCheckChanged={newValue => {
+                    //TODO
+                }}
+                disabled={!isReadyForUpload()}
+            /> */}
 
             {/* push everything below this to the bottom */}
             <div

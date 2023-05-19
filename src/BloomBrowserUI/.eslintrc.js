@@ -28,6 +28,7 @@ module.exports = {
         // Rules to apply on top of the baseline ones (from "extends")
         // FYI, to see all the rule settings, run "eslint --print-config *.ts"
         "prettier/prettier": "off",
+        "react/no-unknown-property": ["error", { ignore: ["css"] }], // allow emotion css: https://emotion.sh/docs/eslint-plugin-react
         "no-var": "warn",
         "prefer-const": "warn",
         "no-useless-escape": "off",
@@ -39,7 +40,10 @@ module.exports = {
         "@typescript-eslint/no-empty-function": "warn",
         "@typescript-eslint/no-empty-interface": "warn",
         "@typescript-eslint/no-explicit-any": "warn",
-        "@typescript-eslint/no-unused-vars": "warn",
+        "@typescript-eslint/no-unused-vars": [
+            "warn",
+            { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }
+        ],
         "@typescript-eslint/no-var-requires": "warn",
         "no-case-declarations": "warn",
         "prefer-rest-params": "warn",

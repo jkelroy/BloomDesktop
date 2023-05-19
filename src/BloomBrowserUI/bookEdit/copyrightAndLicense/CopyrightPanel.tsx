@@ -5,9 +5,9 @@ import * as React from "react";
 import { useEffect, useState } from "react";
 
 import { kMutedTextGray } from "../../bloomMaterialUITheme";
-import { NoteBox } from "../../react_components/BloomDialog/commonDialogComponents";
+import { NoteBox } from "../../react_components/boxes";
 import { Div } from "../../react_components/l10nComponents";
-import { MuiCheckbox } from "../../react_components/muiCheckBox";
+import { BloomCheckbox } from "../../react_components/BloomCheckBox";
 import { MuiTextField } from "../../react_components/muiTextField";
 import { PWithLink } from "../../react_components/pWithLink";
 import { IDerivativeInfo } from "./CopyrightAndLicenseDialog";
@@ -211,7 +211,7 @@ export const CopyrightPanel: React.FunctionComponent<{
             )}
             {props.derivativeInfo?.isBookDerivative && (
                 <React.Fragment>
-                    <MuiCheckbox
+                    <BloomCheckbox
                         label="Not a translation or new version"
                         checked={useOriginalCopyrightAndLicense}
                         l10nKey="Copyright.NotATranslation"

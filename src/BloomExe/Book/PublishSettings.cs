@@ -1,13 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using Bloom.Api;
 using Bloom.Publish;
-using Bloom.Utils;
 using Newtonsoft.Json;
 using Sentry;
 using SIL.Extensions;
@@ -136,7 +132,7 @@ namespace Bloom.Book
 					{
 						if (features != null && features.Any(f => f == "motion"))
 						{
-							settings.BloomPub.Motion = true;
+							settings.BloomPub.PublishAsMotionBookIfApplicable = true;
 							settings.AudioVideo.Motion = true; // something of a guess
 						}
 					}
@@ -287,7 +283,7 @@ namespace Bloom.Book
 	}
 
 	/// <summary>
-	/// Settings used by the Android (BloomPUB) publish tab.
+	/// Settings used by the BloomPUB publish tab.
 	/// Currently incomplete; others should move here eventually.
 	/// </summary>
 	public class BloomPubSettings
@@ -298,32 +294,39 @@ namespace Bloom.Book
 			TextLangs = new Dictionary<string, InclusionSetting>();
 			AudioLangs = new Dictionary<string, InclusionSetting>();
 			SignLangs = new Dictionary<string, InclusionSetting>();
+			PublishAsMotionBookIfApplicable = true; // Default for new books (ignored if they have no motion settings)
 		}
 
 		// Whether to publish the book as a motion book, that can be rotated
-		// horizontal to trigger autoplay with animations. Currently this mirrors
-		// the Motion feature (and the Feature_Motion property of BookInfo) but here
-		// the focus is on storing the publish setting rather than on listing book
-		// features in the library.
+		// horizontal to trigger autoplay with animations. This may well be true
+		// (it is by default) even if the book has no motion settings. However,
+		// in that case the corresponding feature will not be set, and of course
+		// the book can't actually be a motion book.
 		[JsonProperty("motion")]
-		public bool Motion;
+		public bool PublishAsMotionBookIfApplicable;
 
 		/// <summary>
-		/// This corresponds to the checkbox values of which languages the user wants to publish the text for.
+		/// This used to correspond to the checkbox values of which languages the user wants to publish the text for.
+		/// It is now obsolete; we decided to use the BloomLibrary language settings in both screens.
+		/// Keeping it for now so saved settings don't get thrown away in case users persuade us to reinstate it.
 		/// </summary>
 		/// <remarks>Previouly bookInfo.TextLangsToPublish.ForBloomPUB</remarks>
 		[JsonProperty("textLangs")]
 		public Dictionary<string, InclusionSetting> TextLangs;
 
 		/// <summary>
-		/// This corresponds to the checkbox values of which languages the user wants to publish the audio for
+		/// This used to correspond to the checkbox values of which languages the user wants to publish the audio for
+		/// It is now obsolete; we decided to use the BloomLibrary language settings in both screens.
+		/// Keeping it for now so saved settings don't get thrown away in case users persuade us to reinstate it.
 		/// </summary>
 		/// <remarks>Previouly bookInfo.AudioLangsToPublish.ForBloomPUB</remarks>
 		[JsonProperty("audioLangs")]
 		public Dictionary<string, InclusionSetting> AudioLangs;
 
 		/// <summary>
-		/// The sign language(s) -- currently we allow only one -- which the user wants to publish
+		/// Used to be the sign language(s) -- currently we allow only one -- which the user wants to publish
+		/// It is now obsolete; we decided to use the BloomLibrary language settings in both screens.
+		/// Keeping it for now so saved settings don't get thrown away in case users persuade us to reinstate it.
 		/// </summary>
 		/// <remarks>Previouly bookInfo.SignLangsToPublish.ForBloomPUB</remarks>
 		[JsonProperty("signLangs")]
@@ -398,6 +401,8 @@ namespace Bloom.Book
 			TextLangs = new Dictionary<string, InclusionSetting>();
 			AudioLangs = new Dictionary<string, InclusionSetting>();
 			SignLangs = new Dictionary<string, InclusionSetting>();
+			// By default we will publish it as being a comic if it has such data.
+			Comic = true;
 		}
 
 		/// <summary>
@@ -424,5 +429,9 @@ namespace Bloom.Book
 		// For now, the audio language selection is all or nothing for Bloom Library publish
 		[JsonIgnore]
 		public bool IncludeAudio => AudioLangs.Any(al => al.Value.IsIncluded());
+
+		// Whether to advertise the book as a comic book (if it has any comic pages)
+		[JsonProperty("comic")]
+		public bool Comic;
 	}
 }

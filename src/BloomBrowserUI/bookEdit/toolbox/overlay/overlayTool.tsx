@@ -23,7 +23,7 @@ import * as toastr from "toastr";
 import { default as TrashIcon } from "@mui/icons-material/Delete";
 import { get } from "../../../utils/bloomApi";
 import { isLinux } from "../../../utils/isLinux";
-import { MuiCheckbox } from "../../../react_components/muiCheckBox";
+import { BloomCheckbox } from "../../../react_components/BloomCheckBox";
 import { ColorBar } from "./colorBar";
 import { IColorInfo } from "../../../react_components/color-picking/colorSwatch";
 import { IColorPickerDialogProps } from "../../../react_components/color-picking/colorPickerDialog";
@@ -461,7 +461,7 @@ const OverlayToolControls: React.FunctionComponent = () => {
 
     const launchTextColorChooser = () => {
         const colorPickerDialogProps: IColorPickerDialogProps = {
-            noAlphaSlider: true,
+            transparency: false,
             noGradientSwatches: true,
             localizedTitle: textColorTitle,
             initialColor: textColorSwatch,
@@ -479,9 +479,9 @@ const OverlayToolControls: React.FunctionComponent = () => {
     // The background color chooser uses an alpha slider for transparency.
     // Unfortunately, with an alpha slider, the hex input will automatically switch to rgb
     // the moment the user sets alpha to anything but max opacity.
-    const launchBackgroundColorChooser = (noAlpha: boolean) => {
+    const launchBackgroundColorChooser = (transparency: boolean) => {
         const colorPickerDialogProps: IColorPickerDialogProps = {
-            noAlphaSlider: noAlpha,
+            transparency: transparency,
             localizedTitle: backgroundColorTitle,
             initialColor: backgroundColorSwatch,
             palette: BloomPalette.TextBackground,
@@ -644,38 +644,30 @@ const OverlayToolControls: React.FunctionComponent = () => {
                                     </Div>
                                 </MenuItem>
                             </Select>
-                            <div className="comicCheckbox">
-                                <MuiCheckbox
-                                    label="Show Tail"
-                                    l10nKey="EditTab.Toolbox.ComicTool.Options.ShowTail"
-                                    checked={showTailChecked}
-                                    disabled={isChild(currentItemSpec)}
-                                    onCheckChanged={v => {
-                                        handleShowTailChanged(v as boolean);
-                                    }}
-                                    deprecatedVersionWhichDoesntEnsureMultilineLabelsWork={
-                                        true
-                                    }
-                                />
-                            </div>
-                            <div className="comicCheckbox">
-                                <MuiCheckbox
-                                    label="Rounded Corners"
-                                    l10nKey="EditTab.Toolbox.ComicTool.Options.RoundedCorners"
-                                    checked={isRoundedCornersChecked}
-                                    disabled={
-                                        !styleSupportsRoundedCorners(
-                                            currentFamilySpec
-                                        )
-                                    }
-                                    onCheckChanged={newValue => {
-                                        handleRoundedCornersChanged(newValue);
-                                    }}
-                                    deprecatedVersionWhichDoesntEnsureMultilineLabelsWork={
-                                        true
-                                    }
-                                />
-                            </div>
+
+                            <BloomCheckbox
+                                label="Show Tail"
+                                l10nKey="EditTab.Toolbox.ComicTool.Options.ShowTail"
+                                checked={showTailChecked}
+                                disabled={isChild(currentItemSpec)}
+                                onCheckChanged={v => {
+                                    handleShowTailChanged(v as boolean);
+                                }}
+                            />
+
+                            <BloomCheckbox
+                                label="Rounded Corners"
+                                l10nKey="EditTab.Toolbox.ComicTool.Options.RoundedCorners"
+                                checked={isRoundedCornersChecked}
+                                disabled={
+                                    !styleSupportsRoundedCorners(
+                                        currentFamilySpec
+                                    )
+                                }
+                                onCheckChanged={newValue => {
+                                    handleRoundedCornersChanged(newValue);
+                                }}
+                            />
                         </FormControl>
                         <FormControl variant="standard">
                             <InputLabel htmlFor="text-color-bar" shrink={true}>
@@ -702,7 +694,7 @@ const OverlayToolControls: React.FunctionComponent = () => {
                             <ColorBar
                                 id="background-color-bar"
                                 onClick={() =>
-                                    launchBackgroundColorChooser(isCaption)
+                                    launchBackgroundColorChooser(!isCaption)
                                 }
                                 colorInfo={backgroundColorSwatch}
                                 text={percentTransparencyString}

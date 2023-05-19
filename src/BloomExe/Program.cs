@@ -15,7 +15,6 @@ using Bloom.Registration;
 using Bloom.ToPalaso;
 using Bloom.WebLibraryIntegration;
 using BloomTemp;
-using Gecko;
 using L10NSharp;
 using SIL.IO;
 using SIL.Reporting;
@@ -37,6 +36,8 @@ using Sentry;
 using SIL.Windows.Forms.HtmlBrowser;
 using SIL.WritingSystems;
 using SIL.Xml;
+using Microsoft.Web.WebView2.Core;
+using System.Text;
 
 namespace Bloom
 {
@@ -61,8 +62,6 @@ namespace Bloom
 		private static int _uiThreadId;
 		private static ApplicationContainer _applicationContainer;
 		public static bool StartUpWithFirstOrNewVersionBehavior;
-
-		private static GeckoWebBrowser _debugServerStarter;
 
 		static string _originalPreload; // saves LD_PRELOAD environment variable for restarting Bloom
 
@@ -205,14 +204,15 @@ namespace Bloom
 				Application.EnableVisualStyles();
 				Application.SetCompatibleTextRenderingDefault(false);
 
-				XWebBrowser.DefaultBrowserType = XWebBrowser.BrowserType.GeckoFx;
-
 				var args = args1;
 
 				if (SIL.PlatformUtilities.Platform.IsWindows)
 				{
 					OldVersionCheck();
 				}
+
+				if (IsWebviewMissingOrTooOld())
+					return 1;
 
 				//bring in settings from any previous version
 				if (Settings.Default.NeedUpgrade)
@@ -238,7 +238,6 @@ namespace Bloom
 				// by the user.
 				if (!Settings.Default.LicenseAccepted)
 				{
-					GeckoFxBrowser.SetUpXulRunner();
 					using (var dlg = new LicenseDialog("license.htm"))
 						if (dlg.ShowDialog() != DialogResult.OK)
 							return 1;
@@ -315,7 +314,6 @@ namespace Bloom
 						using (_applicationContainer = new ApplicationContainer())
 						{
 							SetUpLocalization();
-							GeckoFxBrowser.SetUpXulRunner();
 							using (var fakeProjectFolder = new TemporaryFolder("projectName"))
 							{
 								var fakeCollectionPath = FolderTeamCollection.SetupMinimumLocalCollectionFilesForRepo(
@@ -408,6 +406,14 @@ namespace Bloom
 						}
 						gotUniqueToken = true;
 					}
+					if (IsInstallerLaunch(args))
+					{
+						// Start the splash screen early for installer launches to reassure
+						// user while localization and other one-time setup is happening.  For
+						// installer launches, no more dialogs should be popping up after this.
+						// See https://issues.bloomlibrary.org/youtrack/issue/BL-12085.
+						StartupScreenManager.StartManaging();
+					}
 					OldVersionCheck();
 
 					SetUpErrorHandling();
@@ -476,13 +482,8 @@ namespace Bloom
 							}
 
 						}
-						GeckoFxBrowser.SetUpXulRunner();
-#if DEBUG
-						if (SIL.PlatformUtilities.Platform.IsWindows)
-							StartDebugServer();
-#endif
 
-						if (!BloomIntegrityDialog.CheckIntegrity())
+						if (!BloomIntegrityChecker.CheckIntegrity())
 						{
 							Environment.Exit(-1);
 						}
@@ -493,16 +494,10 @@ namespace Bloom
 						}
 
 						LocalizationManager.SetUILanguage(Settings.Default.UserInterfaceLanguage, false);
-						GeckoFxBrowser.SetBrowserLanguage(Settings.Default.UserInterfaceLanguage);
+						// TODO-WV2: Can we set the browser language for WV2?  Do we need to?
 
 						DialogAdapters.CommonDialogAdapter.ForceKeepAbove = true;
 						DialogAdapters.CommonDialogAdapter.UseMicrosoftPositioning = true;
-
-						// BL-1258: sometimes the newly installed fonts are not available until after Bloom restarts
-						// We don't even want to try to install fonts if we are installed by an admin for all users;
-						// it will have been installed already as part of the allUsers install.
-						if (!InstallerSupport.SharedByAllUsers() && FontInstaller.InstallFont("AndikaNewBasic"))
-							return 1;
 
 						// Kick off getting all the font metadata for fonts currently installed in the system.
 						// This can take several seconds on slow machines with lots of fonts installed, so we
@@ -513,7 +508,7 @@ namespace Bloom
 						_originalPreload = Environment.GetEnvironmentVariable("LD_PRELOAD");
 						Environment.SetEnvironmentVariable("LD_PRELOAD", null);
 
-						Run();
+						Run(args);
 					}
 				}
 			}
@@ -538,6 +533,51 @@ namespace Bloom
 			Settings.Default.FirstTimeRun = false;
 			Settings.Default.Save();
 			return 0;
+		}
+
+		private static bool IsWebviewMissingOrTooOld()
+		{
+			const string kBloomMinimum= "112.0.0.0";
+			string version;
+			bool missingOrAntique;
+			try
+			{
+				version = CoreWebView2Environment.GetAvailableBrowserVersionString();
+				missingOrAntique = (CoreWebView2Environment.CompareBrowserVersions(version, kBloomMinimum) < 0);
+			}
+			catch (WebView2RuntimeNotFoundException e)
+			{
+				version = "not installed";
+				missingOrAntique = true;
+			}
+			if (missingOrAntique)
+			{
+				using (_applicationContainer = new ApplicationContainer())
+				{
+					SetUpLocalization();
+					var msgBldr = new StringBuilder();
+					var msgFmt1 = LocalizationManager.GetString("Webview.MissingOrTooOld", "Bloom depends on Microsoft WebView2 Evergreen, at least version {0}. We will now send you to a webpage that will help you add this to your computer.");
+					msgBldr.AppendFormat(msgFmt1, kBloomMinimum);
+					msgBldr.AppendLine();
+					if (version == "not installed")
+					{
+						msgBldr.Append(LocalizationManager.GetString("Webview.NotInstalled", "(Currently not installed)"));
+					}
+					else
+					{
+						var msgFmt2 = LocalizationManager.GetString("Webview.CurrentVersion", "(Currently {0})");
+						msgBldr.AppendFormat(msgFmt2, version);
+					}
+					MessageBox.Show(msgBldr.ToString());
+					var psi = new ProcessStartInfo
+					{
+						FileName = "https://docs.bloomlibrary.org/webview2",
+						UseShellExecute = true
+					};
+					Process.Start(psi);
+				}
+			}
+			return missingOrAntique;
 		}
 
 		static async Task<int> HandleUpload(UploadParameters opts)
@@ -655,7 +695,6 @@ namespace Bloom
 				SetUpLocalization();
 				//JT please review: is this needed? InstallerSupport.MakeBloomRegistryEntries(args);
 				BookDownloadSupport.EnsureDownloadFolderExists();
-				GeckoFxBrowser.SetUpXulRunner();
 				LocalizationManager.SetUILanguage(Settings.Default.UserInterfaceLanguage, false);
 				var downloader = new BookDownload(new BloomParseClient(), ProjectContext.CreateBloomS3Client(),
 					new BookDownloadStartingEvent()) /*not hooked to anything*/;
@@ -748,9 +787,10 @@ namespace Bloom
 		}
 
 		[HandleProcessCorruptedStateExceptions]
-		private static void Run()
+		private static void Run(string[] args)
 		{
-			StartupScreenManager.StartManaging();
+			if (!IsInstallerLaunch(args))
+				StartupScreenManager.StartManaging();
 			
 			Settings.Default.Save();
 
@@ -1157,58 +1197,6 @@ namespace Bloom
 			{
 				Application.Exit();
 			}
-		}
-
-		static Gecko.nsILocalFileWin toNsFile(string file)
-		{
-			var nsfile = Xpcom.CreateInstance<nsILocalFileWin>("@mozilla.org/file/local;1");
-			nsfile.InitWithPath(new nsAString(file));
-			return nsfile;
-		}
-
-		static void registerChromeDir(string dir)
-		{
-			var chromeDir = toNsFile(dir);
-			var chromeFile = chromeDir.Clone();
-			chromeFile.Append(new nsAString("chrome.manifest"));
-			Xpcom.ComponentRegistrar.AutoRegister(chromeFile);
-			Xpcom.ComponentManager.AddBootstrappedManifestLocation(chromeDir);
-		}
-
-		/// <summary>
-		/// This code (and the two methods above) were taken from https://bitbucket.org/duanyao/moz-devtools-patch
-		/// with thanks to Duane Yao.
-		/// It starts up a server that allows FireFox to be used to inspect and debug the content of geckofx windows.
-		/// See the ReadMe in remoteDebugging for instructions.
-		/// Note that this should NOT be done in production. There are security issues.
-		/// </summary>
-		static void StartDebugServer()
-		{
-			// There's no point in starting up a debug server...which AFAIK doesn't work anyway...
-			// for debugging GeckoFx if we're using WebView2 instead.
-			if (ExperimentalFeatures.IsFeatureEnabled(ExperimentalFeatures.kWebView2))
-				return;
-			GeckoPreferences.User["devtools.debugger.remote-enabled"] = true;
-
-			// It seems these files MUST be in a subdirectory of the application directory. At least, I haven't figured out
-			// how it can be anywhere else. Therefore the build copies the necessary files there.
-			// If you try to change it, be aware that the chrome.manifest file contains the name of the parent folder;
-			// if you rename the folder and don't change the name there, you get navigation errors in the code below and
-			// remote debugging doesn't work.
-			var chromeDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "remoteDebugging");
-			registerChromeDir(chromeDir);
-			_debugServerStarter = new GeckoWebBrowser();
-			_debugServerStarter.NavigationError += (s, e) => {
-				Console.WriteLine(">>>StartDebugServer error: " + e.ErrorCode.ToString("X"));
-				_debugServerStarter.Dispose();
-				_debugServerStarter = null;
-			};
-			_debugServerStarter.DocumentCompleted += (s, e) => {
-				Console.WriteLine(">>>StartDebugServer complete");
-				_debugServerStarter.Dispose();
-				_debugServerStarter = null;
-			};
-			_debugServerStarter.Navigate("chrome://remoteDebugging/content/moz-remote-debug.html");
 		}
 
 		private static void ReopenProject(object sender, EventArgs e)

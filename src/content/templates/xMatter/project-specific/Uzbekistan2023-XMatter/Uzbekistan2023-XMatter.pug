@@ -1,0 +1,85 @@
+include ../../bloom-xmatter-mixins.pug
+
+doctype html
+html
+	head
+		+metadata-standard
+		title Uzbekistan 2023 Front & Back Matter
+		+stylesheets('Uzbekistan2023-XMatter.css')
+
+		//- Note, we've intentionally used style names that are not part of the normal xmatter
+		//- because we do want pre-existing books to get these defaults, which they wouldn't
+		//- when these are merged in, if they already exist in the book.
+		style(type="text/css" title="userModifiedStyles")
+			= '\n'
+			| /*<![CDATA[*/
+			| .Cover-Foobar-style { font-size: 16pt !important; font-family:"Arial"; color:#FAD41E;     text-align: center;}
+			| .Title-Front-Cover-style { font-size: 34pt !important; font-family:"Aileron; Arial"; color:white;     text-align: center;}
+			| .Cover-Lower-Credits-style { font-size: 16pt !important; font-style:italic; font-family:"Aileron; Arial"; color:white;     text-align: center;}
+			|   /*]]>*/
+	body
+		+page-cover('Front Cover')(data-export='front-matter-cover', data-xmatter-page='frontCover')&attributes(attributes).frontCover.outsideFrontCover#7d7d1d2d-18b0-420f-ac96-6de20f659810
+			+standard-cover-image
+			+field-prototypeDeclaredExplicity("V").bookTitle
+				label.bubble Book title in {lang}
+				+editable(kLanguageForPrototypeOnly).bloom-nodefaultstylerule.Title-Front-Cover-style.bloom-padForOverflow(data-book='bookTitle')
+			div(data-book='level-image-html' lang="*").gradeBadgeRow
+			.creditsRow(data-hint='You may use this space for author/illustrator, or anything else.')
+				+field-prototypeDeclaredExplicity("V").smallCoverCredits
+					+editable(kLanguageForPrototypeOnly).smallCoverCredits.Cover-Lower-Credits-style(data-book='smallCoverCredits')
+
+		+factory-insideFrontCover
+		+page-xmatter('Title Page').titlePage.bloom-frontMatter(data-export='front-matter-title-page', data-xmatter-page='titlePage')&attributes(attributes)#5dcd48df-e9ab-4a07-afd4-6a24d0398382
+			block titlePageContents
+				// TITLE PAGE
+				+field-prototypeDeclaredExplicity("V,N1")
+					label.bubble Author
+					+editable(kLanguageForPrototypeOnly).Author-style.bloom-padForOverflow(data-book='author')
+				div.smallFlexGap
+				+field-prototypeDeclaredExplicity("V,N1")#titlePageTitleBlock
+					label.bubble Book title in {lang}
+					+editable(kLanguageForPrototypeOnly).bloom-nodefaultstylerule.Title-On-Title-Page-style.bloom-padForOverflow(data-book='bookTitle')
+				div.largeFlexGap
+				+standard-originalContributions
+				div.smallFlexGap
+				+field-prototypeDeclaredExplicity("N1")#funding
+					label.bubble Use this to acknowledge any funding agencies.
+					+editable(kLanguageForPrototypeOnly).funding.Content-On-Title-Page-style.bloom-copyFromOtherLanguageIfNecessary(data-book='funding')
+				div.smallFlexGap
+				+field-prototypeDeclaredExplicity("N1")
+					label.bubble Place and year of issue
+					+editable(kLanguageForPrototypeOnly).Place-And-Year-style(data-book='placeAndYear')
+				div.largeFlexGap
+
+				div.fillPageFlexGap.
+				+title-page-branding-bottom
+
+		+page-xmatter("Credits Page").bloom-frontMatter.credits(data-export='front-matter-credits', data-xmatter-page='credits')#69E775AE-5BF1-49F1-89E7-2A932DAD932D
+			block creditsContent
+				+credits-page-branding-top
+				.bloom-metaData.licenseAndCopyrightBlock(data-functiononhintclick="showCopyrightAndLicenseDialog",data-hint="Click to Edit Copyright & License",lang="V")
+					.copyright(data-derived="copyright", lang="*").Credits-Page-style
+						| {copyright}
+					block copyrightHolderAddress
+						// no default content
+					.licenseBlock
+						img.licenseImage(src="license.png" data-derived="licenseImage")
+						.licenseDescription(lang="uz").Credits-Page-style Ushbu asar Creative Commons Attribution- 4.0 (http://creativecommons.org/licenses/by/4.0/) xalqaro ruxsatnomasi bo‘yicha litsenziyadan o‘tgan
+						.licenseNotes.Credits-Page-style Siz mualiflar, rassomlar va boshqalarning mualliflik xuquqlarini saqlab qolishingiz kerak.
+							| Siz ushbu asarni tijorat maqsadida ishlatishingiz mumkin.
+							| Siz ushbu asarni moslashtirishingiz va unga o‘zgarishlar kiritishingiz mumkin.
+				+field-acknowledgments-localizedVersion
+				//- Here code puts in something like "From the original Copyright Pratham Books 2016. CC-BY. Any license notes here."
+				.copyright(data-derived="originalCopyrightAndLicense").Credits-Page-style
+				+field-acknowledgments-originalVersion
+				+credits-page-branding-bottom
+
+		+factoryStandard-insideBackCover
+
+		+page-xmatter('Outside Back Cover').cover.coverColor.outsideBackCover.bloom-backMatter(data-export='back-matter-back-cover', data-xmatter-page='outsideBackCover')&attributes(attributes)#4321D898-9E35-4423-99D4-132B46FAFDA4
+			img.branding.bloomBadge(src='made-with-bloom-badge-white.png')
+			.bloom-force-publish.back-cover-bottom
+				div(data-book="outside-back-cover-USAID" lang="*")
+				div(data-book="outside-back-cover-ministry" lang="*")
+
+

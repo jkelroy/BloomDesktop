@@ -20,9 +20,7 @@ using SIL.Reporting;
 using SIL.Windows.Forms.ClearShare;
 using SIL.Windows.Forms.ImageToolbox;
 using SIL.Windows.Forms.Miscellaneous;
-using Gecko;
 using TempFile = SIL.IO.TempFile;
-using Gecko.DOM;
 using SIL.IO;
 using SIL.Windows.Forms.ImageToolbox.ImageGallery;
 using SIL.Windows.Forms.Widgets;
@@ -33,7 +31,6 @@ using System.Threading.Tasks;
 using System.Xml;
 using Bloom.Utils;
 using Bloom.MiscUI;
-using SIL.Xml;
 
 namespace Bloom.Edit
 {
@@ -62,7 +59,7 @@ namespace Bloom.Edit
 
 		public EditingView(EditingModel model, PageListView pageListView, CutCommand cutCommand, CopyCommand copyCommand,
 			PasteCommand pasteCommand, UndoCommand undoCommand, DuplicatePageCommand duplicatePageCommand,
-			DeletePageCommand deletePageCommand, NavigationIsolator isolator, ControlKeyEvent controlKeyEvent,
+			DeletePageCommand deletePageCommand, ControlKeyEvent controlKeyEvent,
 			SignLanguageApi signLanguageApi, CommonApi commonApi, EditingViewApi editingViewApi, PageListApi pageListApi, BookRenamedEvent bookRenamedEvent,
 			CopyrightAndLicenseApi copyrightAndLicenseApi)
 		{
@@ -111,8 +108,6 @@ namespace Bloom.Edit
 			copyrightAndLicenseApi.View = this;
 			_browser1.SetEditingCommands(cutCommand, copyCommand, pasteCommand, undoCommand);
 
-			_browser1.BrowserReady += new EventHandler(OnBrowserReady);
-
 			_browser1.ControlKeyEvent = controlKeyEvent;
 
 			if(SIL.PlatformUtilities.Platform.IsMono)
@@ -129,7 +124,6 @@ namespace Bloom.Edit
 
 			//we're giving it to the parent control through the TopBarControls property
 			Controls.Remove(_topBarPanel);
-			SetupBrowserContextMenu();
 			bookRenamedEvent.Subscribe((oldToNewPath) =>
 			{
 				// If the selected book is renamed, we should update our saved CurrentBookPath.
@@ -228,24 +222,6 @@ namespace Bloom.Edit
 
 		public EditingModel Model => _model;
 
-		/// <summary>
-		/// Might add a menu item to the Gecko context menu.
-		/// If the current book is LockedDown, we don't add any text over picture options.
-		/// If we are in a "bloom-imageContainer" div the menu item will be to add a text box to the image.
-		/// If we are in a "bloom-textOverPicture" div the menu item will be to delete a text box from the image.
-		/// Otherwise no menu item is added.
-		/// </summary>
-		private void SetupBrowserContextMenu()
-		{
-			// "return false" means we don't want to override other menu items that might be added
-			// We might be able to remove doing this altogether. However, currently there is a subtle
-			// difference in behavior when ContextMenuProvider is non-null.
-			_browser1.ContextMenuProvider = (target, menu) =>
-			{
-				return false;
-			};
-		}
-
 		private void HandleControlKeyEvent(object keyData)
 		{
 			if(_visible && (Keys) keyData == (Keys.Control | Keys.N))
@@ -255,17 +231,6 @@ namespace Bloom.Edit
 			}
 		}
 
-
-#if TooExpensive
-		void OnBrowserFocusChanged(object sender, GeckoDomEventArgs e)
-		{
-			//prevent recursion
-			_browser1.WebBrowser.DomFocus -= new EventHandler<GeckoDomEventArgs>(OnBrowserFocusChanged);
-			_model.BrowserFocusChanged();
-			_browser1.WebBrowser.DomFocus += new EventHandler<GeckoDomEventArgs>(OnBrowserFocusChanged);
-
-		}
-#endif
 
 		private void RepositionButtonsForMono()
 		{
@@ -357,13 +322,6 @@ namespace Bloom.Edit
 			_pendingMessageHandler = null;
 		}
 
-		private void OnBrowserReady(object sender, EventArgs e)
-		{
-#if TooExpensive
-			_browser1.WebBrowser.DomFocus += new EventHandler<GeckoDomEventArgs>(OnBrowserFocusChanged);
-#endif
-		}
-
 		private void SetupThumnailLists()
 		{
 			_pageListView.Dock = DockStyle.Left;
@@ -440,7 +398,7 @@ namespace Bloom.Edit
 
 		DateTime _beginPageLoad;
 
-		public void UpdateSingleDisplayedPage(IPage page)
+		public void UpdateSingleDisplayedPage(IPage page, bool changingUiLanguage = false)
 		{
 			if(!_model.Visible)
 			{
@@ -482,7 +440,7 @@ namespace Bloom.Edit
 				// never happens.
 				// Do this before we change the src of the iframe to make sure we're ready when the document-completed arrives.
 				_browser1.DocumentCompleted += WebBrowser_ReadyStateChanged;
-				if (_model.AreToolboxAndOuterFrameCurrent() && !ShouldDoFullReload())
+				if (_model.AreToolboxAndOuterFrameCurrent() && !changingUiLanguage && !ShouldDoFullReload())
 				{
 					// Keep the top document and toolbox iframe, just navigate the page iframe to the new page.
 					_browser1.SetEditDom(domForCurrentPage);
@@ -503,20 +461,11 @@ namespace Bloom.Edit
 					// Set everything up and navigate the top browser to a new root document.
 					_model.SetupServerWithCurrentBookToolboxContents();
 					var dom = _model.GetXmlDocumentForEditScreenWebPage();
-					_browser1.Navigate(dom, domForCurrentPage, setAsCurrentPageForDebugging: true, source:BloomServer.SimulatedPageFileSource.Frame);
+					_browser1.Navigate(dom, domForCurrentPage, setAsCurrentPageForDebugging: true, source:InMemoryHtmlFileSource.Frame);
 				}
 				_model.CheckForBL2634("navigated to page");
 				SetModalState(false);	// ensure _pageListView is enabled (BL-9712).
 				_pageListView.Focus();
-#if __MonoCS__
-				// On Linux/Mono, the user can click between pages too fast in Edit mode, resulting
-				// in a warning dialog popping up.  I've never seen this happen on Windows, but it's
-				// happening fairly often on Linux when I just try to move around a book.  The fix
-				// here is to set a flag that page selection is still processing and block any
-				// further page selecting until the current page has finished loading.
-				_model.PageSelectionStarted();
-				(_browser1 as GeckoFxBrowser).WebBrowser.DocumentCompleted += WebBrowser_DocumentCompleted;
-#endif
 			}
 #if MEMORYCHECK
 			// Check memory for the benefit of developers.
@@ -550,17 +499,6 @@ namespace Bloom.Edit
 			return ((ModifierKeys & Keys.Alt) == Keys.Alt) || RobustFile.Exists("/tmp/UseBackgroundGC");
 		}
 
-#if __MonoCS__
-		/// <summary>
-		/// Flag the PageSelection object that the current (former?) page selection has completed,
-		/// so it's safe to select another page now.
-		/// </summary>
-		void WebBrowser_DocumentCompleted(object sender, EventArgs e)
-		{
-			_model.PageSelectionFinished();
-			(_browser1 as GeckoFxBrowser).WebBrowser.DocumentCompleted -= WebBrowser_DocumentCompleted;
-		}
-#endif
 
 		void WebBrowser_ReadyStateChanged(object sender, EventArgs e)
 		{
@@ -574,14 +512,12 @@ namespace Bloom.Edit
 				Logger.WriteEvent("performing backgound garbage collection without finalizers");
 				GC.Collect(2, GCCollectionMode.Optimized, false, true);
 				//GC.WaitForPendingFinalizers();
-				MemoryService.MinimizeHeap(false);
 			}
 			else
 			{
 				Logger.WriteEvent("performing blocking garbage collection with finalizers");
 				GC.Collect(/*2, GCCollectionMode.Optimized, false, true*/);
 				GC.WaitForPendingFinalizers();
-				MemoryService.MinimizeHeap(true);
 			}
 			var endPageLoad = DateTime.Now;
 			Logger.WriteEvent($"update page elapsed time = {endPageLoad - _beginPageLoad} (garbage collect took {endPageLoad - beginGarbageCollect}");
@@ -901,34 +837,6 @@ namespace Bloom.Edit
 			return img;
 		}
 
-		private static GeckoHtmlElement GetImageNode(DomEventArgs ge)
-		{
-			var target = (GeckoHtmlElement) ge.Target.CastToGeckoElement();
-			var imageContainer = target.Parent;
-			if(imageContainer.OuterHtml.Contains("background-image"))
-				return imageContainer; // using a background-image instead of child <img> element
-			foreach(var node in imageContainer.ChildNodes)
-			{
-				var imageElement = node as GeckoHtmlElement;
-				if(imageElement != null && (imageElement.TagName.ToLowerInvariant() == "img" ||
-				                            imageElement.OuterHtml.Contains("background-image")))
-				{
-					return imageElement;
-				}
-			}
-
-			Debug.Fail("Could not find image element");
-			// This shouldn't happen, but BL-5278 reports that it did. To allow the image toolbox
-			// to be opened so at least a new image can be inserted, we need to put some img element
-			// there, and it has to have a source.
-			var repairedImg = imageContainer.OwnerDocument.CreateElement("img");
-			repairedImg.SetAttribute("src", "placeHolder.png");
-			repairedImg.SetAttribute("data-problem", "inserted to repair missing img BL-5278");
-			imageContainer.AppendChild(repairedImg);
-			NonFatalProblem.Report(ModalIf.None, PassiveIf.All, "Missing picture partly repaired", "An <img> element on this page was missing and things were repaired enough to let you choose a new one. We would appreciate help in figuring out how to make this happen so that we can fix it. This is issue BL-5278 in our bug tracking system");
-			return (GeckoHtmlElement) repairedImg;
-		}
-
 		/// <summary>
 		/// Returns true if it is either: a) OK to change images, or b) user overrides
 		/// Returns false if user cancels message box
@@ -964,12 +872,6 @@ namespace Bloom.Edit
 
 			if(!CheckIfLockedAndWarn(currentPath))
 				return;
-			// Back when we were working with click action that identified a target element,
-			// to bring us here it had to be the change image button. As far as I can tell that
-			// never had the class licenseImage so I think this code was redundant.
-			//var target = (GeckoHtmlElement) ge.Target.CastToGeckoElement();
-			//if(target.ClassName.Contains("licenseImage"))
-			//	return;
 
 			Cursor = Cursors.WaitCursor;
 
@@ -1780,5 +1682,11 @@ namespace Bloom.Edit
 
 		// intended for use only by the EditingModel
 		internal Browser Browser => _browser1;
+
+		private void _bookSettingsButton_Click(object sender, EventArgs e)
+		{
+			_model.SaveNow();
+			RunJavaScript("editTabBundle.showEditViewBookSettingsDialog();");
+		}
 	}
 }

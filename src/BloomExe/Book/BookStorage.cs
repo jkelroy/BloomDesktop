@@ -305,7 +305,7 @@ namespace Bloom.Book
 			string path = Path.Combine(FolderPath, fileName);
 			if (RobustFile.Exists(path))
 			{
-				image = ImageUtils.GetImageFromFile(path);
+				image = ToPalaso.RobustImageIO.GetImageFromFile(path);
 				return true;
 			}
 			image = null;
@@ -443,11 +443,7 @@ namespace Bloom.Book
 				Dom.RemoveMetaElement("FeatureRequirement");
 			}
 
-			var watch = Stopwatch.StartNew();
 			string tempPath = SaveHtml(Dom);
-			watch.Stop();
-			TroubleShooterDialog.Report($"Saving xml to html took {watch.ElapsedMilliseconds} milliseconds");
-
 			ValidateSave(tempPath);
 
 			BookInfo.Save();
@@ -457,11 +453,7 @@ namespace Bloom.Book
 		// and if all is well moves the current file to a backup and the new one to replace the original.
 		private void ValidateSave(string tempPath)
 		{
-			Stopwatch watch;
-			watch = Stopwatch.StartNew();
 			string errors = ValidateBook(Dom, tempPath);
-			watch.Stop();
-			TroubleShooterDialog.Report($"Validating book took {watch.ElapsedMilliseconds} milliseconds");
 
 			if (!String.IsNullOrEmpty(errors))
 			{
@@ -502,21 +494,19 @@ namespace Bloom.Book
 		public void SaveForPageChanged(string pageId, XmlElement modifiedPage)
 		{
 			// Convert the one page to HTML
-			var watch = new Stopwatch();
-			watch.Start();
 			string pageHtml = XmlHtmlConverter.ConvertElementToHtml5(modifiedPage);
 
 			// Read the old file and copy it to the new one, except for replacing the one page.
 			string tempPath = GetNameForATempFileInStorageFolder();
-			using (var reader = new StreamReader(new FileStream(PathToExistingHtml, FileMode.Open), Encoding.UTF8))
-			{
-				using (var writer = new StreamWriter(new FileStream(tempPath, FileMode.Create), Encoding.UTF8))
+			RetryUtility.Retry(() => {
+				using (var reader = new StreamReader(new FileStream(PathToExistingHtml, FileMode.Open), Encoding.UTF8))
 				{
-					ReplacePage(pageId, reader, writer, pageHtml);
+					using (var writer = new StreamWriter(new FileStream(tempPath, FileMode.Create), Encoding.UTF8))
+					{
+						ReplacePage(pageId, reader, writer, pageHtml);
+					}
 				}
-			}
-			watch.Stop();
-			TroubleShooterDialog.Report($"SaveForPageChanged took {watch.ElapsedMilliseconds} milliseconds");
+			});
 			ValidateSave(tempPath);
 			BookInfo.Save();
 		}
@@ -1661,7 +1651,7 @@ namespace Bloom.Book
 		}
 
 		/// <summary>
-		/// PublishHelper (ePUB and Android) and BloomS3Client (Upload) call this after copying a book
+		/// PublishHelper (ePUB and BloomPUB) and BloomS3Client (Upload) call this after copying a book
 		/// to a staging folder.
 		/// </summary>
 		internal static void EnsureSingleHtmFile(string folderPath)
@@ -1814,20 +1804,37 @@ namespace Bloom.Book
 				}
 				else
 				{
-					// NOTE:  I'm not sure we ever hit this code even when there's not any html files in the book's folder.
+					// This was  observed to happen at the end of downloading a very large book (BL-12034).
+					// It's also of course possible that the user has been messing with the book folder,
+					// or that we have a bug. It's rare enough that we don't feel a need to make it a super-nice
+					// message, but it should give some useful information and not crash.
+					// Generally this will not be seen, because Bloom does not create a book icon in a collection
+					// at all for a folder that does not contain at least one HTM{L} file.
+					// If it IS seen, currently it will appear as ErrorMessagesHtml, so it needs to be valid HTML,
+					// and to use <br> for newlines. If we manage to get NotifyUserOfProblem working in this
+					// situation, we probably need to switch back to newlines.
 					var b = new StringBuilder();
-					b.AppendLine("Could not find an html file in the folder to use.");
+					b.AppendLine("Could not find an html file in the folder to use.<br/>");
 					if (files.Count == 0)
 					{
-						b.AppendLine("***There are no files.");
+						b.AppendLine("***There are no files.<br>");
 					}
 					else
 					{
 						b.AppendLine("Files in this book are:");
 						foreach (var f in files)
-							b.AppendLine("  " + f);
+							b.AppendLine("<br/>" + f);
 					}
-					throw new ApplicationException(b.ToString());
+					ErrorMessagesHtml =b.ToString();
+					// This freezes the app and does not show. I can't figure out why. We plan to come back to this in 5.6 (BL-12034)
+					//ErrorReport.NotifyUserOfProblem(ErrorMessagesHtml);
+
+					// It's tempting to throw here, but then the constructor fails,
+					// and we get a very confusing stack dump because usually creating
+					// a BookStorage happens deep in the depths of AutoFac (BL-12034).
+					// So I'm going for returning a BookStorage in an error state, though
+					// that has some problems too.
+					return;
 				}
 			}
 			else
@@ -2146,7 +2153,7 @@ namespace Bloom.Book
 		}
 
 		// Brandings come with logos and such... we want them in the book folder itself so that they work
-		// apart from Bloom and in web browsing, epub, and android contexts.
+		// apart from Bloom and in web browsing, ePUB, and BloomPUB contexts.
 		private void CopyBrandingFiles()
 		{
 			_brandingImageNames.Clear();

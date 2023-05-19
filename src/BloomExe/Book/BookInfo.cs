@@ -324,7 +324,7 @@ namespace Bloom.Book
 			{
 				try
 				{
-					image = ImageUtils.GetImageFromFile(path);
+					image = ToPalaso.RobustImageIO.GetImageFromFile(path);
 					return true;
 				}
 				catch (Exception e) // If that file became corrupted, we would not want to lock user out of their book.
@@ -1486,8 +1486,6 @@ namespace Bloom.Book
 		[JsonIgnore]
 		public bool Feature_Activity => Feature_Quiz || Feature_Widget || Feature_SimpleDomChoice;
 
-		[JsonIgnore]
-		public bool Feature_Blind { get { return Feature_Blind_LangCodes?.Any() == true; } }
 		[JsonIgnore]
 		public bool Feature_TalkingBook { get { return Feature_TalkingBook_LangCodes?.Any() == true; } }
 		[JsonIgnore]

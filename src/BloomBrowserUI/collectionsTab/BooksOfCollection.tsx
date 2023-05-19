@@ -14,6 +14,7 @@ import {
 import { BookSelectionManager } from "./bookSelectionManager";
 import LazyLoad, { forceVisible } from "react-lazyload";
 import { Link } from "../react_components/link";
+import { kBloomBlue } from "../bloomMaterialUITheme";
 
 export interface IBookInfo {
     id: string;
@@ -145,10 +146,10 @@ export const BooksOfCollection: React.FunctionComponent<{
                 <Link
                     l10nKey="CollectionTab.BloomLibraryLinkLabel"
                     href="https://bloomlibrary.org"
+                    // Make this look like "Show another collection..."
                     css={css`
-                        color: white !important;
-                        text-decoration: underline !important;
-                        font-size: 0.8rem !important;
+                        text-transform: uppercase;
+                        font-size: initial;
                     `}
                 >
                     Get more source books at BloomLibrary.org

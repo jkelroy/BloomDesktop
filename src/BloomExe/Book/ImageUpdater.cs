@@ -2,11 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Xml;
 using Bloom.Utils;
 using L10NSharp;
-using SIL.CommandLineProcessing;
 using SIL.IO;
 using SIL.Progress;
 using SIL.Reporting;
@@ -74,6 +72,13 @@ namespace Bloom.Book
 			}
 		}
 
+		private static readonly string[] _imagesThatShouldBeSingletons = new string[] { "placeholder.png", "license.png" };
+
+		public static bool IsPlaceholderOrLicense(string fileName)
+		{
+			return _imagesThatShouldBeSingletons.Contains(fileName.ToLowerInvariant());
+		}
+
 		private static readonly string[] ExcludedFiles = { "placeholder.png", "license.png", "thumbnail.png", "nonPaddedThumbnail.png" };
 
 		/// <summary>
@@ -112,10 +117,12 @@ namespace Bloom.Book
 			{
 				return PalasoImage.FromFileRobustly(path);
 			}
-			catch (CorruptFileException e)
+			catch (Exception e)
 			{
-				ErrorReport.NotifyUserOfProblem(e,
-					"Bloom ran into a problem while trying to read the metadata portion of this image, " + path);
+				var msgFmt = LocalizationManager.GetString("Errors.CorruptImageFile", "The image file {0} is corrupt and needs to be replaced. ({1})");
+				string msg = string.Format(msgFmt, Path.GetFileName(path), e.Message);
+				Logger.WriteEvent($"Book.UpdateImgMetadataAttributesToMatchImage() Image {path} is corrupt: {e.Message}");
+				NonFatalProblem.Report(ModalIf.All, PassiveIf.None, msg, null, null, false, false, true);
 				return null;
 			}
 		}
@@ -145,7 +152,7 @@ namespace Bloom.Book
 			//see also PageEditingModel.UpdateMetadataAttributesOnImage(), which does the same thing but on the browser dom
 			var url = HtmlDom.GetImageElementUrl(new ElementProxy(imgElement));
 			string fileName = url.PathOnly.NotEncoded;
-			if (fileName.ToLowerInvariant() == "placeholder.png" || fileName.ToLowerInvariant() == "license.png")
+			if (IsPlaceholderOrLicense(fileName))
 				return;
 			if (string.IsNullOrEmpty(fileName))
 			{
@@ -175,6 +182,17 @@ namespace Bloom.Book
 				catch (UnauthorizedAccessException e)
 				{
 					throw new BloomUnauthorizedAccessException(path, e);
+				}
+				catch (Exception e)
+				{
+					imgElement.RemoveAttribute("data-copyright");
+					imgElement.RemoveAttribute("data-creator");
+					imgElement.RemoveAttribute("data-license");
+					Logger.WriteEvent($"Book.UpdateImgMetadataAttributesToMatchImage() Image {path} is corrupt: {e.Message}");
+					var msgFmt = LocalizationManager.GetString("Errors.CorruptImageFile", "The image file {0} is corrupt and needs to be replaced. ({1})");
+					string msg = string.Format(msgFmt, fileName, e.Message);
+					NonFatalProblem.Report(ModalIf.All, PassiveIf.None, msg, null, null, false, false, true);
+					return;
 				}
 			}
 

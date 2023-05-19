@@ -9,9 +9,10 @@ import {
     getBloomApiPrefix,
     getBoolean,
     post,
+    postBoolean,
     postString
 } from "../../utils/bloomApi";
-import { kBloomRed } from "../../utils/colorUtils";
+import { kBloomDisabledOpacity } from "../../utils/colorUtils";
 import { BloomStepper } from "../../react_components/BloomStepper";
 import { Div, Span } from "../../react_components/l10nComponents";
 import BloomButton from "../../react_components/bloomButton";
@@ -20,10 +21,11 @@ import {
     ProgressBox,
     ProgressBoxHandle
 } from "../../react_components/Progress/progressBox";
-import { MuiCheckbox } from "../../react_components/muiCheckBox";
+import { BloomCheckbox } from "../../react_components/BloomCheckBox";
 import { useL10n } from "../../react_components/l10nHooks";
 import { kWebSocketContext } from "./LibraryPublishScreen";
 import {
+    useSubscribeToWebSocketForEvent,
     useSubscribeToWebSocketForObject,
     useSubscribeToWebSocketForStringMessage
 } from "../../utils/WebSocketManager";
@@ -34,12 +36,16 @@ import {
     showConfirmDialog
 } from "../../react_components/confirmDialog";
 import { BloomSplitButton } from "../../react_components/bloomSplitButton";
-import { WaitBox } from "../../react_components/BloomDialog/commonDialogComponents";
+import { ErrorBox, WaitBox } from "../../react_components/boxes";
 import {
     IUploadCollisionDlgProps,
     showUploadCollisionDialog,
     UploadCollisionDlg
 } from "./uploadCollisionDlg";
+import { showCopyrightAndLicenseInfoOrDialog } from "../../bookEdit/copyrightAndLicense/CopyrightAndLicenseDialog";
+import { useGetEnterpriseBookshelves } from "../../collection/useGetEnterpriseBookshelves";
+import { MustBeCheckedOut } from "../../react_components/MustBeCheckedOut";
+import { SelectedBookContext } from "../../app/SelectedBookContext";
 
 interface IReadonlyBookInfo {
     title: string;
@@ -52,9 +58,37 @@ interface IReadonlyBookInfo {
 }
 
 const kWebSocketEventId_uploadSuccessful: string = "uploadSuccessful";
+const kWebSocketEventId_uploadCanceled: string = "uploadCanceled";
 const kWebSocketEventId_loginSuccessful: string = "loginSuccessful";
 
 export const LibraryPublishSteps: React.FunctionComponent = () => {
+    const selectedBookContext = React.useContext(SelectedBookContext);
+    const [bookshelfHasProblem, setBookshelfHasProblem] = useState(false);
+    const {
+        project,
+        defaultBookshelfUrlKey,
+        validBookshelves,
+        error: serverError
+    } = useGetEnterpriseBookshelves();
+
+    useEffect(() => {
+        if (serverError) {
+            return;
+        } else {
+            if (
+                project !== "" &&
+                project !== "local-community" &&
+                defaultBookshelfUrlKey !== ""
+            ) {
+                setBookshelfHasProblem(
+                    validBookshelves.filter(
+                        b => b.value === defaultBookshelfUrlKey
+                    ).length === 0
+                );
+            }
+        }
+    }, [project, defaultBookshelfUrlKey, validBookshelves, serverError]);
+
     const localizedSummary = useL10n("Summary", "PublishTab.Upload.Summary");
     const localizedAllRightsReserved = useL10n(
         "All rights reserved (Contact the Copyright holder for any permissions.)",
@@ -85,16 +119,32 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
         "PublishTab.Upload.EnterpriseShelfRequiredTooltip"
     );
 
+    const [reload, setReload] = useState<number>(0);
+
     const progressBoxRef = useRef<ProgressBoxHandle>(null);
 
+    const [isLoading, setIsLoading] = useState<boolean>(true);
     const [bookInfo, setBookInfo] = useState<IReadonlyBookInfo>();
     useEffect(() => {
         post("libraryPublish/checkForLoggedInUser");
+        getBoolean("libraryPublish/agreementsAccepted", result => {
+            setAgreedPreviously(result);
+            setAgreementsAccepted(result);
+        });
         get("libraryPublish/getBookInfo", result => {
             setBookInfo(result.data);
             setSummary(result.data.summary);
+            setIsLoading(false);
         });
-    }, []);
+    }, [reload]);
+    useSubscribeToWebSocketForStringMessage(
+        "bookCopyrightAndLicense",
+        "saved",
+        () => {
+            setReload(reload => reload + 1);
+        }
+    );
+
     const [useSandbox, setUseSandbox] = useState<boolean>(false);
     const [uploadButtonText, setUploadButtonText] = useState<string>(
         localizedUploadBook
@@ -115,15 +165,23 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [summary]); // purposefully not including bookInfo, so we don't post on initial load
 
-    // Only set this to true for development. It's a shortcut to allow uploading without having to agree to the terms.
-    const isDevelopmentShortcutOn = false;
-
     function isReadyForAgreements(): boolean {
         return !!bookInfo?.title && !!bookInfo?.copyright;
     }
+    const [agreedPreviously, setAgreedPreviously] = useState<boolean>(false);
     const [agreementsAccepted, setAgreementsAccepted] = useState<boolean>(
         false
     );
+    // This useRef silliness is to prevent the postBoolean from happening on the initial render.
+    const hasRenderedRef = useRef(false);
+    useEffect(() => {
+        if (hasRenderedRef.current)
+            postBoolean(
+                "libraryPublish/agreementsAccepted",
+                agreementsAccepted
+            );
+        else hasRenderedRef.current = true;
+    }, [agreementsAccepted]);
 
     const [loggedInEmail, setLoggedInEmail] = useState<string>();
 
@@ -136,10 +194,7 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
     );
 
     function isReadyForUpload(): boolean {
-        return (
-            isDevelopmentShortcutOn ||
-            (isReadyForAgreements() && agreementsAccepted)
-        );
+        return isReadyForAgreements() && agreementsAccepted;
     }
 
     function confirmWithUserIfNecessaryAndUpload() {
@@ -172,6 +227,15 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
             } else post("libraryPublish/upload");
         });
     }
+
+    const [isCanceling, setIsCanceling] = useState<boolean>(false);
+    useSubscribeToWebSocketForEvent(
+        kWebSocketContext,
+        kWebSocketEventId_uploadCanceled,
+        () => {
+            setIsCanceling(false);
+        }
+    );
 
     function bulkUploadCollection() {
         post("libraryPublish/uploadCollection");
@@ -273,6 +337,67 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
         localizedSuggestChangeCC
     ]);
 
+    const serverErrorBox = serverError && (
+        <ErrorBox
+            l10Msg="Bloom could not reach the server to get the list of bookshelves."
+            l10nKey="CollectionSettingsDialog.BookMakingTab.NoBookshelvesFromServer"
+        ></ErrorBox>
+    );
+    const bookshelfErrorBox = bookshelfHasProblem && (
+        <ErrorBox
+            l10Msg="The collection's bookshelf was not on the list of bookshelves for this Enterprise subscription."
+            l10nKey="PublishTab.Upload.BookshelfError"
+        />
+    );
+
+    const uploadButton = (
+        <BloomSplitButton
+            disabled={
+                isCanceling ||
+                !isReadyForUpload() ||
+                !loggedInEmail ||
+                // If 'error', there's probably an internet problem that will
+                // hinder upload anyway.
+                // If 'bookshelfHasProblem', the collection settings have a
+                // bookshelf that isn't acceptable according to the current
+                // subscription. In both cases, we give the user a tool tip on the
+                // disabled button to tell them what the problem is.
+                serverError ||
+                bookshelfHasProblem
+            }
+            options={[
+                {
+                    english: uploadButtonText,
+                    l10nId: "already-localized",
+                    onClick: () => {
+                        progressBoxRef.current?.clear();
+                        confirmWithUserIfNecessaryAndUpload();
+                    }
+                },
+                {
+                    english: localizedUploadCollection,
+                    l10nId: "already-localized",
+                    requiresEnterpriseSubscription: true,
+                    enterpriseTooltipOverride: localizedEnterpriseTooltip,
+                    onClick: () => {
+                        progressBoxRef.current?.clear();
+                        bulkUploadCollection();
+                    }
+                },
+                {
+                    english: localizedUploadFolder,
+                    l10nId: "already-localized",
+                    requiresEnterpriseSubscription: true,
+                    enterpriseTooltipOverride: localizedEnterpriseTooltip,
+                    onClick: () => {
+                        progressBoxRef.current?.clear();
+                        bulkUploadFolderOfCollections();
+                    }
+                }
+            ]}
+        ></BloomSplitButton>
+    );
+
     return (
         <React.Fragment>
             <BloomStepper orientation="vertical">
@@ -287,79 +412,95 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
                         </Span>
                     </StepLabel>
                     <StepContent>
-                        <div
-                            css={css`
-                                font-size: larger;
-                            `}
-                        >
+                        {/* The isLoading check prevents pretty bad flashing of the "missing" error boxes. */}
+                        {!isLoading && (
                             <div
                                 css={css`
-                                    font-weight: bold;
+                                    font-size: larger;
                                 `}
                             >
-                                {bookInfo?.title || (
+                                {bookInfo?.title ? (
+                                    <div
+                                        css={css`
+                                            font-weight: bold;
+                                        `}
+                                    >
+                                        {bookInfo?.title}
+                                    </div>
+                                ) : (
                                     <MissingInfo
-                                        text="Title Missing"
+                                        text="Missing Title"
                                         l10nKey={
                                             "PublishTab.Upload.Missing.Title"
                                         }
-                                    />
-                                )}
-                            </div>
-                            <div>
-                                {bookInfo?.copyright || (
-                                    <MissingInfo
-                                        text="Copyright Missing"
-                                        l10nKey={
-                                            "PublishTab.Upload.Missing.Copyright"
+                                        onClick={() =>
+                                            post(
+                                                "libraryPublish/goToEditBookCover"
+                                            )
                                         }
                                     />
                                 )}
+                                {bookInfo?.copyright ? (
+                                    <div>{bookInfo?.copyright}</div>
+                                ) : (
+                                    <MissingInfo
+                                        text="Missing Copyright"
+                                        l10nKey={
+                                            "PublishTab.Upload.Missing.Copyright"
+                                        }
+                                        onClick={
+                                            showCopyrightAndLicenseInfoOrDialog
+                                        }
+                                    />
+                                )}
+                                {licenseBlock}
                             </div>
-                            {licenseBlock}
-                        </div>
-                        <TextField
-                            // needed by aria for a11y
-                            id="book summary"
-                            value={summary}
-                            onChange={e => setSummary(e.target.value)}
-                            label={localizedSummary}
-                            margin="normal"
-                            variant="outlined"
-                            InputLabelProps={{
-                                shrink: true
-                            }}
-                            multiline
-                            rows="2"
-                            aria-label="Book summary"
-                            fullWidth
-                            css={css`
-                                margin-left: -15px; // Align the label with the read-only data labels. Determined experimentally.
-                                margin-top: 24px;
+                        )}
+                        <MustBeCheckedOut placement="bottom">
+                            <TextField
+                                // needed by aria for a11y
+                                id="book summary"
+                                value={summary}
+                                onChange={e => setSummary(e.target.value)}
+                                label={localizedSummary}
+                                margin="normal"
+                                variant="outlined"
+                                InputLabelProps={{
+                                    shrink: true
+                                }}
+                                multiline
+                                rows="2"
+                                aria-label="Book summary"
+                                fullWidth
+                                css={css`
+                                    margin-top: 24px;
 
-                                // This is messy. MUI doesn't seem to let you easily (and correctly) change the label size.
-                                // You're supposed to be able to set a style on InputLabelProps and set fontSize, but then
-                                // the border around the textbox partially goes through it.
-                                // The way that break in the border is implemented is a "legend" which obscures the border.
-                                // The legend has the same text as the label. So we have to make the text the same size.
-                                // The original transform is translate(14px, -9px) scale(1). In order to make "larger" match,
-                                // we unscale it here -- scale(1), and as a result we have to increase the scale of the legend.
-                                .MuiInputLabel-root {
-                                    color: inherit;
-                                    font-weight: 500;
-                                    font-size: larger;
-                                    transform: translate(14px, -9px) scale(1);
-                                    &.Mui-focused {
+                                    // This is messy. MUI doesn't seem to let you easily (and correctly) change the label size.
+                                    // You're supposed to be able to set a style on InputLabelProps and set fontSize, but then
+                                    // the border around the textbox partially goes through it.
+                                    // The way that break in the border is implemented is a "legend" which obscures the border.
+                                    // The legend has the same text as the label. So we have to make the text the same size.
+                                    // The original transform is translate(14px, -9px) scale(1). In order to make "larger" match,
+                                    // we unscale it here -- scale(1), and as a result we have to increase the scale of the legend.
+                                    .MuiInputLabel-root {
                                         color: inherit;
+                                        font-weight: 500;
+                                        font-size: larger;
+                                        transform: translate(14px, -9px)
+                                            scale(1);
+                                        &.Mui-focused {
+                                            color: inherit;
+                                        }
                                     }
-                                }
-                                legend {
-                                    font-weight: 500;
-                                    font-size: larger;
-                                    transform: scale(1.5);
-                                }
-                            `}
-                        />
+                                    legend {
+                                        font-weight: 500;
+                                        font-size: larger;
+                                        transform: scale(1.5);
+                                    }
+                                `}
+                                disabled={!selectedBookContext.saveable}
+                            />
+                        </MustBeCheckedOut>
                     </StepContent>
                 </Step>
                 <Step
@@ -374,6 +515,7 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
                     </StepLabel>
                     <StepContent>
                         <Agreements
+                            initiallyChecked={agreedPreviously}
                             disabled={!isReadyForAgreements()}
                             onReadyChange={setAgreementsAccepted}
                         />
@@ -388,34 +530,31 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
                         <Span l10nKey={"Common.Upload"}>Upload</Span>
                     </StepLabel>
                     <StepContent>
-                        {/* This will move to the settings section
-                        <MuiCheckbox
-                        label={
-                            <React.Fragment>
-                                <img src="/bloom/publish/LibraryPublish/DRAFT-Stamp.svg" />
-                                <Span l10nKey="PublishTab.Upload.Draft">
-                                    Show this book only to reviewers with whom I
-                                    share the URL of this book.
-                                </Span>
-                            </React.Fragment>
-                        }
-                        checked={false} //TODO
-                        onCheckChanged={newValue => {
-                            //TODO
-                        }}
-                        disabled={!isReadyForUpload()}
-                    /> */}
+                        {serverErrorBox}
+                        {bookshelfErrorBox}
                         <div
                             css={css`
                                 display: flex;
                                 justify-content: space-between;
                             `}
                         >
+                            {!loggedInEmail && (
+                                <BloomButton
+                                    variant="contained"
+                                    color="secondary"
+                                    enabled={isReadyForUpload()}
+                                    l10nKey="PublishTab.Upload.SignIn"
+                                    onClick={() => post("libraryPublish/login")}
+                                >
+                                    Sign in or sign up to BloomLibrary.org
+                                </BloomButton>
+                            )}
                             {isUploading ? (
                                 <BloomButton
-                                    enabled={true}
+                                    enabled={!isCanceling}
                                     l10nKey={"Common.Cancel"}
                                     onClick={() => {
+                                        setIsCanceling(true);
                                         setIsUploading(false);
                                         post("libraryPublish/cancel");
                                     }}
@@ -423,43 +562,9 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
                                     Cancel
                                 </BloomButton>
                             ) : (
-                                <BloomSplitButton
-                                    disabled={
-                                        !isReadyForUpload() || !loggedInEmail
-                                    }
-                                    options={[
-                                        {
-                                            english: uploadButtonText,
-                                            l10nId: "already-localized",
-                                            onClick: () => {
-                                                progressBoxRef.current?.clear();
-                                                confirmWithUserIfNecessaryAndUpload();
-                                            }
-                                        },
-                                        {
-                                            english: localizedUploadCollection,
-                                            l10nId: "already-localized",
-                                            requiresEnterpriseSubscription: true,
-                                            enterpriseTooltipOverride: localizedEnterpriseTooltip,
-                                            onClick: () => {
-                                                progressBoxRef.current?.clear();
-                                                bulkUploadCollection();
-                                            }
-                                        },
-                                        {
-                                            english: localizedUploadFolder,
-                                            l10nId: "already-localized",
-                                            requiresEnterpriseSubscription: true,
-                                            enterpriseTooltipOverride: localizedEnterpriseTooltip,
-                                            onClick: () => {
-                                                progressBoxRef.current?.clear();
-                                                bulkUploadFolderOfCollections();
-                                            }
-                                        }
-                                    ]}
-                                ></BloomSplitButton>
+                                loggedInEmail && uploadButton
                             )}
-                            {loggedInEmail ? (
+                            {loggedInEmail && (
                                 <BloomButton
                                     variant="text"
                                     enabled={isReadyForUpload()}
@@ -471,16 +576,7 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
                                         setLoggedInEmail(undefined);
                                     }}
                                 >
-                                    Sign Out as %0
-                                </BloomButton>
-                            ) : (
-                                <BloomButton
-                                    variant="text"
-                                    enabled={isReadyForUpload()}
-                                    l10nKey="PublishTab.Upload.SignIn"
-                                    onClick={() => post("libraryPublish/login")}
-                                >
-                                    Sign in or sign up to BloomLibrary.org
+                                    Sign out (%0)
                                 </BloomButton>
                             )}
                         </div>
@@ -520,7 +616,7 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
                                 span {
                                     // Otherwise we get Bloom blue.
                                     // This button is different than others because using
-                                    // href rather than onClick means it uses the a tag.
+                                    // href rather than onClick means it uses the 'a' tag.
                                     color: white;
                                 }
                             `}
@@ -582,18 +678,15 @@ export const LibraryPublishSteps: React.FunctionComponent = () => {
     );
 };
 
-// remaining from JH's original TODO list:
-// (some of these apply to the Settings)
-// Choose languages to upload
-// Really hook up login/signup
-// Features
-
 const Agreements: React.FunctionComponent<{
+    initiallyChecked: boolean;
     disabled: boolean;
     onReadyChange: (v: boolean) => void;
 }> = props => {
     const totalCheckboxes = 3;
-    const [numChecked, setNumChecked] = useState<number>(0);
+    const [numChecked, setNumChecked] = useState<number>(
+        props.initiallyChecked ? 3 : 0
+    );
     useEffect(() => {
         props.onReadyChange(numChecked === totalCheckboxes);
     }, [numChecked]);
@@ -605,13 +698,19 @@ const Agreements: React.FunctionComponent<{
     return (
         <React.Fragment>
             <AgreementCheckbox
+                initiallyChecked={props.initiallyChecked}
                 label={
                     <React.Fragment>
                         <Span l10nKey="PublishTab.Upload.Agreement.PermissionToPublish">
                             I have permission to publish all the text and images
                             in this book.
                         </Span>{" "}
-                        <Link href={"TODO"} l10nKey="Common.LearnMore">
+                        <Link
+                            href={
+                                "https://docs.bloomlibrary.org/permission-to-publish"
+                            }
+                            l10nKey="Common.LearnMore"
+                        >
                             Learn More
                         </Link>
                     </React.Fragment>
@@ -620,6 +719,7 @@ const Agreements: React.FunctionComponent<{
                 onChange={checked => handleChange(checked)}
             />
             <AgreementCheckbox
+                initiallyChecked={props.initiallyChecked}
                 label={
                     <Span l10nKey={"PublishTab.Upload.Agreement.GivesCredit"}>
                         The book gives credit to the the author, translator, and
@@ -630,13 +730,21 @@ const Agreements: React.FunctionComponent<{
                 onChange={checked => handleChange(checked)}
             />
             <AgreementCheckbox
+                initiallyChecked={props.initiallyChecked}
                 label={
                     <PWithLink
                         href={"https://bloomlibrary.org/terms"}
                         l10nKey={"PublishTab.Upload.Agreement.AgreeToTerms"}
                         css={css`
-                            // We don't want normal padding the browser adds, mostly so the height matches the other checkboxes.
+                            /* We don't want normal padding the browser adds, mostly so the height matches the other checkboxes. */
                             margin: 0;
+
+                            & a {
+                                text-decoration: none;
+                                :hover {
+                                    text-decoration: underline;
+                                }
+                            }
                         `}
                     >
                         I agree to the [Bloom Library Terms of Use].
@@ -649,23 +757,20 @@ const Agreements: React.FunctionComponent<{
     );
 };
 
-// This component is a bit odd. It doesn't quite fit into controlled or uncontrolled.
-// We have an onChange handler because we need to know when its state changes.
-// But we never pass in the value it because always starts in a certain state (unchecked/false).
-// We can do this because it is only designed to be used in this limited context.
 const AgreementCheckbox: React.FunctionComponent<{
+    initiallyChecked: boolean;
     label: string | React.ReactNode;
     disabled: boolean;
     onChange: (v: boolean) => void;
 }> = props => {
-    const [isChecked, setIsChecked] = useState(false);
+    const [isChecked, setIsChecked] = useState(props.initiallyChecked);
     function handleCheckChanged(isChecked: boolean) {
         setIsChecked(isChecked);
         props.onChange(isChecked);
     }
     return (
         <div>
-            <MuiCheckbox
+            <BloomCheckbox
                 label={props.label}
                 checked={isChecked}
                 onCheckChanged={newState => {
@@ -673,7 +778,7 @@ const AgreementCheckbox: React.FunctionComponent<{
                 }}
                 disabled={props.disabled}
                 alreadyLocalized={true}
-            ></MuiCheckbox>
+            ></BloomCheckbox>
         </div>
     );
 };
@@ -683,7 +788,7 @@ const WarningMessage: React.FunctionComponent = props => {
         <div
             css={css`
                 font-size: small;
-                color: ${kBloomRed};
+                color: red;
             `}
         >
             {props.children}
@@ -694,17 +799,40 @@ const WarningMessage: React.FunctionComponent = props => {
 const MissingInfo: React.FunctionComponent<{
     text: string;
     l10nKey: string;
+    onClick: () => void;
 }> = props => {
+    const selectedBookContext = React.useContext(SelectedBookContext);
     return (
-        <Div
-            l10nKey={props.l10nKey}
+        <ErrorBox
             css={css`
-                font-size: unset;
-                font-weight: normal;
-                color: ${kBloomRed};
+                max-width: 550px;
             `}
         >
-            {props.text}
-        </Div>
+            <div>
+                <Div
+                    css={css`
+                        font-style: italic;
+                    `}
+                    l10nKey={props.l10nKey}
+                >
+                    {props.text}
+                </Div>
+                <MustBeCheckedOut placement="bottom-start">
+                    <Link
+                        css={css`
+                            text-decoration: underline;
+                            opacity: ${selectedBookContext.saveable
+                                ? 1
+                                : kBloomDisabledOpacity};
+                        `}
+                        l10nKey={"PublishTab.Upload.ClickToFix"}
+                        onClick={props.onClick}
+                        disabled={!selectedBookContext.saveable}
+                    >
+                        Click to fix
+                    </Link>
+                </MustBeCheckedOut>
+            </div>
+        </ErrorBox>
     );
 };

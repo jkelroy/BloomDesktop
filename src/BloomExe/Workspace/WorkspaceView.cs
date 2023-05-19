@@ -27,7 +27,6 @@ using Bloom.TeamCollection;
 using Bloom.ToPalaso;
 using Bloom.Utils;
 using Bloom.web.controllers;
-using Gecko.Cache;
 using Newtonsoft.Json;
 using SIL.PlatformUtilities;
 using SIL.Windows.Forms.Miscellaneous;
@@ -71,6 +70,7 @@ namespace Bloom.Workspace
 		private BloomWebSocketServer _webSocketServer;
 		private BookServer _bookServer;
 		private WorkspaceTabSelection _tabSelection;
+		private CollectionApi _collectionApi;
 
 		//autofac uses this
 
@@ -108,6 +108,7 @@ namespace Bloom.Workspace
 			_bookServer = bookServer;
 			_tabSelection = tabSelection;
 			collectionApi.WorkspaceView = this; // avoids an Autofac exception that appears if collectionApi constructor takes a WorkspaceView
+			_collectionApi = collectionApi;
 			appApi.WorkspaceView = this; // it needs to know, and there's some circularity involved in having factory pass it in
 			workspaceApi.WorkspaceView = this; // and yet one more
 
@@ -249,7 +250,8 @@ namespace Bloom.Workspace
 				// It would be better still if most of the work of SelectPreviouslySelectedBook could
 				// be done on a background thread so it could make progress as quickly as possible
 				// without holding up drawing the collection panes.
-				waitForMilestone: "collectionButtonsDrawn");
+				waitForMilestone: "collectionButtonsDrawn",
+				shouldHideSplashScreen: true);	// possibility of error message boxes (BL-12155)
 		}
 
 		private void ReadyToShowCollections()
@@ -311,26 +313,7 @@ namespace Bloom.Workspace
 		public string GetCurrentSelectedBookInfo()
 		{
 			var book = _bookSelection.CurrentSelection;
-			var collectionKind = "other";
-
-			if (book == null || book.HasFatalError)
-			{
-				// not exactly a kind of collection, but a convenient way to indicate these states,
-				// in which edit/make button should not show at all.
-				collectionKind = "error";
-			}
-			else if (book != null && book.IsEditable)
-			{
-				collectionKind = "main";
-			}
-			// Review: we're tentatively thinking that "delete book" and "open folder on disk"
-			// will both be enabled for all but factory collections. Currently, Bloom is more
-			// restrictive on delete: only books in main or "Books from BloomLibrary.org" can be deleted.
-			// But there doesn't seem to be any reason to prevent deleting books from e.g. a bloompack.
-			else if (book != null && BloomFileLocator.IsInstalledFileOrDirectory(book.CollectionSettings.FolderPath))
-			{
-				collectionKind = "factory";
-			}
+			var collectionKind = Book.Book.CollectionKind(book);
 
 			string aboutBookInfoUrl = null;
 			if (book != null && book.HasAboutBookInformationToShow)
@@ -663,7 +646,7 @@ namespace Bloom.Workspace
 			var tag = (LanguageItem)item.Tag;
 
 			LocalizationManager.SetUILanguage(tag.LangTag, true);
-			GeckoFxBrowser.SetBrowserLanguage(tag.LangTag);
+			// TODO-WV2: Can we set the browser language in WV2?  Do we need to?
 			Settings.Default.UserInterfaceLanguage = tag.LangTag;
 			Settings.Default.UserInterfaceLanguageSetExplicitly = true;
 			Settings.Default.Save();
@@ -752,6 +735,8 @@ namespace Bloom.Workspace
 		}
 
 		public bool InEditMode => _tabStrip.SelectedTab == _editTab;
+
+		public bool InCollectionTab => _tabStrip.SelectedTab == _reactCollectionTab;
 
 		internal bool IsInTabStrip(Point pt)
 		{
@@ -911,6 +896,7 @@ namespace Bloom.Workspace
 											});
 
 			_previouslySelectedControl = view;
+			_collectionApi.ResetUpdatingList();
 
 			var zoomManager = CurrentTabView as IZoomManager;
 			if (zoomManager != null)
@@ -925,17 +911,7 @@ namespace Bloom.Workspace
 				if (_toolStrip.Items.Contains(_zoomWrapper))
 					_toolStrip.Items.Remove(_zoomWrapper);
 			}
-			// Possibly overkill, but makes sure nothing obsolete hangs around long.
-			try
-			{
-				CacheService.Clear(CacheStoragePolicy.Anywhere);
-			}
-			catch (Exception e)
-			{
-				// Unfortunately it typically throws, being for some reason unable to clear everything...
-				// doc says it may still have got rid of some things, so seems marginally worth doing...
-				Bloom.Utils.MiscUtils.SuppressUnusedExceptionVarWarning(e);
-			}
+			// TODO-WV2: Can we clear the cache in WV2?  Do we need to?
 		}
 
 		private void BackgroundColorsForLinux(IBloomTabArea currentTabView) {
@@ -977,6 +953,22 @@ namespace Bloom.Workspace
 			Logger.WriteEvent("Selecting Tab Page: " + e.SelectedTab.Name);
 			SelectPage((Control) e.SelectedTab.Tag);
 			AdjustTabStripDisplayForScreenSize();
+		}
+
+		public void ChangeTab(WorkspaceTab newTab)
+		{
+			switch (newTab)
+			{
+				case WorkspaceTab.edit:
+					_tabStrip.SelectedTab = _editTab;
+					break;
+				case WorkspaceTab.collection:
+					_tabStrip.SelectedTab = _reactCollectionTab;
+					break;
+				case WorkspaceTab.publish:
+					_tabStrip.SelectedTab = _publishTab;
+					break;
+			}
 		}
 
 		private void _tabStrip_BackColorChanged(object sender, EventArgs e)
@@ -1081,13 +1073,8 @@ namespace Bloom.Workspace
 					{
 						using (var dlg = new ReactDialog("autoUpdateSoftwareDlgBundle", "Auto Update"))
 						{
-							dlg.Height = 350;
-							dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
-							dlg.ControlBox = false;
-							dlg.Text = ""; // Don't show a title on the dialog
-										   // FWIW: We don't want this dialog draggable, but if I didn't set Text to empty string,
-										   // the dialog is draggable, but says "ReactDialog" in the upper left corner.
-										   // If we need a draggable one sometime, we can just set the Text to what we want.
+							dlg.Height = 250;
+							dlg.Width = 500;
 							dlg.ShowDialog(this);
 						}
 					}, shouldHideSplashScreen:true, lowPriority:false);
@@ -1122,6 +1109,11 @@ namespace Bloom.Workspace
 			{
 				g.Dispose();
 			}
+		}
+
+		public void CheckForCollectionUpdates()
+		{
+			_collectionApi.CheckForCollectionUpdates();
 		}
 
 		public void CheckForUpdates()

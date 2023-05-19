@@ -15,11 +15,11 @@ using Bloom.Publish.Epub;
 using Bloom.ToPalaso;
 using Bloom.web.controllers;
 using DesktopAnalytics;
-using Gecko;
 using L10NSharp;
 using Microsoft.CSharp.RuntimeBinder;
 using SIL.Code;
 using SIL.Extensions;
+using SIL.IO;
 using SIL.Reporting;
 using SIL.Text;
 using SIL.Xml;
@@ -201,7 +201,7 @@ namespace Bloom.Book
 		/// <summary>
 		/// This property records the folder in which the browser needs to find files referred to using
 		/// non-absolute locations.
-		/// This method is designed to be used in conjunction with BloomServer.MakeSimulatedPageFileInBookFolder().
+		/// This method is designed to be used in conjunction with BloomServer.MakeInMemoryHtmlFileInBookFolder().
 		/// which generates URLs that give the browser the content of this DOM, and also handles derived urls
 		/// relative to that one.
 		/// </summary>
@@ -665,6 +665,19 @@ namespace Bloom.Book
 			}
 		}
 
+		public static void CopyMissingStylesheetFiles(HtmlDom sourceDom, string sourceFolder, string destFolder)
+		{
+			foreach (string sheetName in sourceDom.GetTemplateStyleSheets())
+			{
+				var destinationPath = Path.Combine(destFolder, sheetName);
+				if (!RobustFile.Exists(destinationPath))
+				{
+					var sourcePath = Path.Combine(sourceFolder, sheetName);
+					if (RobustFile.Exists(sourcePath))
+						RobustFile.Copy(sourcePath, destinationPath);
+				}
+			}
+		}
 
 		public void AddPublishClassToBody(string kindOfPublication=null)
 		{
@@ -1252,7 +1265,7 @@ namespace Bloom.Book
 
 		// Both of these are relative to the DOM's Head element
 		private const string CoverColorStyleXPath = "./style[@type='text/css' and contains(.,'coverColor')]";
-		private const string UserModifiedStyleXPath = "./style[@type='text/css' and @title='userModifiedStyles']";
+		public const string UserModifiedStyleXPath = "./style[@type='text/css' and @title='userModifiedStyles']";
 
 		/// <summary>
 		/// Finds the style element that contains css rules for 'userModifiedStyles',
@@ -1295,32 +1308,32 @@ namespace Bloom.Book
 		}
 
 		/// <summary>
-		/// This method should only be used on the page DOM being inserted into a book by the Add Page/Change Layout dialog.
-		/// It compares the styles in the head's user-defined styles section (inherited from the template book)
-		/// with the ones referenced in the class attributes in the domForInsertedPage's body to see which styles need to be
-		/// copied over to the new book.
+		/// Return the definitions of the user-modifiable styles used in the page.
 		/// </summary>
 		/// <param name="domForInsertedPage"></param>
 		/// <returns></returns>
-		internal static XmlNode GetUserModifiableStylesUsedOnPage(HtmlDom domForInsertedPage)
+		internal static string GetUserModifiableStylesUsedOnPage(HtmlDom domForInsertedPage)
+		{
+			return GetUserModifiableStylesUsedOnPage(domForInsertedPage.Head, domForInsertedPage.Body);
+		}
+
+		internal static string GetUserModifiableStylesUsedOnPage(XmlElement head, XmlElement contentToSearch)
 		{
 			// there should only be one userModifiedStyles node, so this will only grab the first one
-			var userStyleElementFromTemplate = GetUserModifiedStyleElement(domForInsertedPage.Head);
+			var userStyleElementFromTemplate = GetUserModifiedStyleElement(head);
 			if (userStyleElementFromTemplate == null)
-				return AddEmptyUserModifiedStylesNode(domForInsertedPage.Head);
+				return "";
 
 			var keyDict = GetUserStyleKeyDict(userStyleElementFromTemplate);
 			var keysUsedOnPage = new Dictionary<string, string>();
 			foreach (var keyPair in keyDict)
 			{
 				var style = GetStyleNameFromRuleSelector(keyPair.Key);
-				var searchResult = GetAllDivsWithClass(domForInsertedPage.Body, style);
+				var searchResult = GetAllDivsWithClass(contentToSearch, style);
 				if (searchResult.Count > 0)
 					keysUsedOnPage.Add(keyPair.Key, keyPair.Value);
 			}
-			userStyleElementFromTemplate.InnerText =
-				GetCompleteFilteredUserStylesInnerText(keysUsedOnPage);
-			return userStyleElementFromTemplate;
+			return GetCompleteFilteredUserStylesInnerText(keysUsedOnPage);
 		}
 
 		private static string GetStyleNameFromRuleSelector(string selector)
@@ -1334,7 +1347,7 @@ namespace Bloom.Book
 		public static string MergeUserStylesOnInsertion(XmlNode existingUserStyleNode,
 			XmlNode insertedPageUserStyleNode)
 		{
-			return MergeUserStylesOnInsertion(existingUserStyleNode, insertedPageUserStyleNode, out bool dummy);
+			return MergeUserStylesOnInsertion(existingUserStyleNode, insertedPageUserStyleNode?.InnerText ?? "", out bool dummy);
 		}
 
 		/// <summary>
@@ -1343,16 +1356,16 @@ namespace Bloom.Book
 		/// It might, however, add a style where a pre-existing style differed only in language attribute.
 		/// </summary>
 		/// <param name="existingUserStyleNode">From current book's storage</param>
-		/// <param name="insertedPageUserStyleNode"></param>
+		/// <param name="insertedPageUserStyles">Should be the InnerText (not InnerXml) of a style node.</param>
 		/// <returns>The InnerXml to which the user modified styles element should be set.</returns>
-		public static string MergeUserStylesOnInsertion(XmlNode existingUserStyleNode, XmlNode insertedPageUserStyleNode, out bool didAdd)
+		public static string MergeUserStylesOnInsertion(XmlNode existingUserStyleNode, string insertedPageUserStyles, out bool didAdd)
 		{
 			didAdd = false;
 			// this method in production is currently always called just after
 			// CurrentBook.GetOrCreateUserModifiedStyleElementFromStorage()
 			Guard.AgainstNull(existingUserStyleNode, "existingUserStyleNode");
 
-			if (insertedPageUserStyleNode == null || insertedPageUserStyleNode.InnerXml == String.Empty)
+			if (insertedPageUserStyles == null || insertedPageUserStyles == String.Empty)
 				return WrapUserStyleInCdata(existingUserStyleNode.InnerText);
 
 			var existingStyleKeyDict = GetUserStyleKeyDict(existingUserStyleNode);
@@ -1361,7 +1374,7 @@ namespace Bloom.Book
 			{
 				existingStyleNames.Add(GetStyleNameFromRuleSelector(key));
 			}
-			var insertedPageStyleKeyDict = GetUserStyleKeyDict(insertedPageUserStyleNode); // could be empty
+			var insertedPageStyleKeyDict = GetUserStyleKeyDict(insertedPageUserStyles); // could be empty
 			foreach (var keyPair in insertedPageStyleKeyDict)
 			{
 				if (existingStyleNames.Contains(GetStyleNameFromRuleSelector(keyPair.Key)))
@@ -1420,8 +1433,13 @@ namespace Bloom.Book
 
 		private static IDictionary<string, string> GetUserStyleKeyDict(XmlNode userStyleNode)
 		{
-			var keyDict = new Dictionary<string, string>();
-			var styleStrings = GetStyles(userStyleNode.InnerText); // skips empty lines
+			return GetUserStyleKeyDict(userStyleNode.InnerText);
+		}
+
+		private static IDictionary<string, string> GetUserStyleKeyDict(string userStyles)
+		{
+		var keyDict = new Dictionary<string, string>();
+			var styleStrings = GetStyles(userStyles); // skips empty lines
 			foreach (var styleString in styleStrings)
 			{
 				if (styleString.Length < minStyleLength)
@@ -1900,38 +1918,19 @@ namespace Bloom.Book
 
 		private static void FindFontsUsedInEmbeddedCss(string htmlContent, HashSet<string> result, bool includeFallbackFonts)
 		{
-			// Remove any HTML comments from the HTML string.
-			for (var idx = htmlContent.IndexOf("<!--"); idx >= 0; idx = htmlContent.IndexOf("<!--", idx))
+			var dom = XmlHtmlConverter.GetXmlDomFromHtml(htmlContent);
+			var styles = dom.SafeSelectNodes("/html/head/style");
+			foreach (XmlElement style in styles)
 			{
-				var endIdx = htmlContent.IndexOf("-->", idx + 4);
-				if (endIdx > idx)
-					htmlContent = htmlContent.Remove(idx, endIdx + 3 - idx);
+				var cssContent = style.InnerText;
+				FindFontsUsedInCss(cssContent, result, includeFallbackFonts);
 			}
-			// Capturing the content of a <style> element is too hard for Regex.  But we can capture
-			// the start tag okay, and work from there.
-			var styleElements = new Regex("<style[^>]*type=[\"']text/css[\"'][^>]*>");
-			foreach (Match match in styleElements.Matches(htmlContent))
+			var elementsWithStyleAttribute = dom.SafeSelectNodes("/html/body//*[@style]");
+			foreach (XmlElement element in elementsWithStyleAttribute)
 			{
-				var idxStart = match.Index + match.Length;
-				var idxEnd = htmlContent.IndexOf("</style>", idxStart);
-				if (idxEnd > idxStart)
-				{
-					var cssContent = htmlContent.Substring(idxStart, idxEnd - idxStart);
-					//Console.WriteLine("DEBUG cssContent from HTML <style> = \"{0}\"", cssContent);
+				var cssContent = element.GetAttribute("style");
+				if (!String.IsNullOrEmpty(cssContent) && cssContent.Contains("font-family:") && !String.IsNullOrEmpty(element.InnerText))
 					FindFontsUsedInCss(cssContent, result, includeFallbackFonts);
-				}
-			}
-			var styleAttributes1 = new Regex(" style=\"([^\"]*)\"");
-			foreach (Match match in styleAttributes1.Matches(htmlContent))
-			{
-				var cssContent = HttpUtility.HtmlDecode(match.Groups[1].Value);
-				FindFontsUsedInCss(cssContent, result, includeFallbackFonts);
-			}
-			var styleAttributes2 = new Regex(" style='([^']*)'");
-			foreach (Match match in styleAttributes2.Matches(htmlContent))
-			{
-				var cssContent = HttpUtility.HtmlDecode(match.Groups[1].Value);
-				FindFontsUsedInCss(cssContent, result, includeFallbackFonts);
 			}
 		}
 
@@ -2426,6 +2425,12 @@ namespace Bloom.Book
 			// older versions of Bloom, the Parse database, and Bloom Library.
 			return _dom.SelectSingleNode(BookStorage.ComicalXpath) != null;
 		}
+
+		public bool HasImageDescriptions => _dom.SafeSelectNodes("//div[contains(@class, 'bloom-imageDescription')]")
+			.Cast<XmlElement>()
+			// This is needed because it's possible to get elements with the class just by taking a look
+			// at the tool, without ever actually creating an image description.
+			.Any(x => !string.IsNullOrWhiteSpace(x.InnerText));
 
 		public XmlNodeList SelectVideoSources()
 		{

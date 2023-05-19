@@ -26,8 +26,7 @@ namespace Bloom.Publish.BloomLibrary
 	/// </summary>
 	public class BloomLibraryPublishModel
 	{
-		private readonly Metadata _licenseMetadata;
-		private readonly LicenseInfo _license;
+		private LicenseInfo _license;
 		private readonly BookUpload _uploader;
 		private readonly PublishModel _publishModel;
 
@@ -39,11 +38,11 @@ namespace Bloom.Publish.BloomLibrary
 			_uploader = uploader;
 			_publishModel = model;
 
-			_licenseMetadata = Book.GetLicenseMetadata();
+			var licenseMetadata = Book.GetLicenseMetadata();
 			// This is usually redundant, but might not be on old books where the license was set before the new
 			// editing code was written.
-			Book.SetMetadata(_licenseMetadata);
-			_license = _licenseMetadata.License;
+			Book.SetMetadata(licenseMetadata);
+			_license = licenseMetadata.License;
 
 			EnsureBookAndUploaderId();
 		}
@@ -92,6 +91,15 @@ namespace Bloom.Publish.BloomLibrary
 		internal string PrettyLanguageName(string code)
 		{
 			return Book.PrettyPrintLanguage(code);
+		}
+
+		// This is awkward. We really just want to always get the latest license info.
+		// But Book.GetLicenseMetadata() is not a trivial operation.
+		// The original code assumed that the book's license would not change during the lifetime of the model.
+		// But now the user can open the CopyrightAndLicenseDialog from Publish tab.
+		internal void EnsureUpToDateLicense()
+		{
+			_license = Book.GetLicenseMetadata().License;
 		}
 
 		/// <summary>
@@ -156,7 +164,7 @@ namespace Bloom.Publish.BloomLibrary
 
 		internal bool IsThisVersionAllowedToUpload => _uploader.IsThisVersionAllowedToUpload();
 
-		internal string UploadOneBook(BookInstance book, IProgress progress, PublishView publishView, bool excludeMusic, out string parseId)
+		internal string UploadOneBook(BookInstance book, IProgress progress, PublishModel publishModel, bool excludeMusic, out string parseId)
 		{
 			using (var tempFolder = new TemporaryFolder(Path.Combine("BloomUpload", Path.GetFileName(book.FolderPath))))
 			{
@@ -166,7 +174,7 @@ namespace Bloom.Publish.BloomLibrary
 					ExcludeMusic = excludeMusic,
 					PreserveThumbnails = false,
 				};
-				return _uploader.FullUpload(book, progress, publishView, bookParams, out parseId);
+				return _uploader.FullUpload(book, progress, publishModel, bookParams, out parseId);
 			}
 		}
 
@@ -220,13 +228,12 @@ namespace Bloom.Publish.BloomLibrary
 			return couldNotUpload + "A non-template book needs at least one language where every non-xmatter field contains text in that language.";
 		}
 
-		public void UpdateBookMetadataFeatures(bool isBlind, bool isTalkingBook, bool isSignLanguage)
+		public void UpdateBookMetadataFeatures(bool isTalkingBook, bool isSignLanguage)
 		{
 			var allowedLanguages = Book.BookInfo.PublishSettings.BloomLibrary.TextLangs.IncludedLanguages()
 				.Union(Book.BookInfo.PublishSettings.BloomLibrary.SignLangs.IncludedLanguages());
 
 			Book.UpdateMetadataFeatures(
-				isBlindEnabled: isBlind,
 				isTalkingBookEnabled: isTalkingBook,
 				isSignLanguageEnabled: isSignLanguage,
 				allowedLanguages);
@@ -264,7 +271,7 @@ namespace Bloom.Publish.BloomLibrary
 			foreach (var kvp in allLanguages)
 			{
 				var langCode = kvp.Key;
-				var isRequiredLang = IsRequiredLanguageForBook(langCode, book);
+				var isRequiredLang = book.IsRequiredLanguage(langCode);
 
 				// First, check if the user has already explicitly set the value. If so, we'll just use that value and be done.
 				if (bookInfo.PublishSettings.BloomLibrary.TextLangs.TryGetValue(langCode, out InclusionSetting checkboxValFromSettings))
@@ -281,9 +288,9 @@ namespace Bloom.Publish.BloomLibrary
 
 				// Nope, either no value exists or the value was some kind of default value.
 				// Compute (or recompute) what the value should default to.
-				bool isChecked = kvp.Value || isRequiredLang;
+				bool shouldBeChecked = kvp.Value || isRequiredLang;
 
-				var newInitialValue = isChecked ? InclusionSetting.IncludeByDefault : InclusionSetting.ExcludeByDefault;
+				var newInitialValue = shouldBeChecked ? InclusionSetting.IncludeByDefault : InclusionSetting.ExcludeByDefault;
 				bookInfo.PublishSettings.BloomLibrary.TextLangs[langCode] = newInitialValue;
 			}
 
@@ -291,26 +298,22 @@ namespace Bloom.Publish.BloomLibrary
 
 			var allLangCodes = allLanguages.Select(x => x.Key);
 
-			// This is tricky, because currently our UI does not support different settings for different languages.
+			// This is tricky, because an earlier version of our UI did not support different settings for different languages.
 			// Thus, an older version of this code only did this init the first time, when AudioLangs was null.
 			// However, at least one book (BL-11784) got into a state where AudioLangs is an empty set.
 			// Then there is NO item in the set to be switched on or off, so effectively, it remains off.
-			// (IncludeAudio is true if at least one is Include or IncludeByDefault).
+			// (The old IncludeAudio was true if at least one is Include or IncludeByDefault).
 			// It is therefore necessary, minimally, to make sure the set has at least one language
 			// if allLangCodes has any. But properly, it is intended to  have a value for every language in
-			// allLangCodes...we just temporarily expect that they will all be the same.
+			// allLangCodes...just in the old version they would all be the same.
 			// It seems more future-proof to add any languages that are missing, while not changing the
 			// setting for any we already have. But then, what setting should we use for any language
-			// that is missing? If we take the previous approach and use IncludeByDefault, which is currently
-			// equivalent to Include, we would effectively turn on narration upload (for all languages)
-			// any time we find a new language, even if it was previously off. So it seems better to copy
-			// the setting from an arbitrary current language if any; if there are none, then we go with
-			// the old default. For now, this will keep the old value of the setting. If we enhance the UI
-			// so that each language can have a different setting, we should probably switch this code to
-			// initialize newly encountered languages to IncludeByDefault.
+			// that is missing? To help preserve the old behavior, if all the old ones are exclude
+			// we'll go with that, otherwise, include.
 			var settingForNewLang = InclusionSetting.IncludeByDefault;
-			if (bookInfo.PublishSettings.BloomLibrary.AudioLangs.Any())
-				settingForNewLang = bookInfo.PublishSettings.BloomLibrary.AudioLangs.First().Value;
+			if (bookInfo.PublishSettings.BloomLibrary.AudioLangs.Any() &&
+			    bookInfo.PublishSettings.BloomLibrary.AudioLangs.All(kvp => !kvp.Value.IsIncluded()))
+				settingForNewLang = InclusionSetting.ExcludeByDefault;
 
 			foreach (var langCode in allLangCodes)
 			{
@@ -327,11 +330,11 @@ namespace Bloom.Publish.BloomLibrary
 					bookInfo.PublishSettings.BloomLibrary.SignLangs[includedSignLangCode] = InclusionSetting.ExcludeByDefault;
 				}
 			}
-			// Include the collection sign language by default unless the user excluded it.
+			// Include the collection sign language by default unless the user set it definitely.
 			if (!string.IsNullOrEmpty(collectionSignLangCode))
 			{
 				if (!bookInfo.PublishSettings.BloomLibrary.SignLangs.ContainsKey(collectionSignLangCode) ||
-					bookInfo.PublishSettings.BloomLibrary.SignLangs[collectionSignLangCode] != InclusionSetting.Exclude)
+					bookInfo.PublishSettings.BloomLibrary.SignLangs[collectionSignLangCode] == InclusionSetting.ExcludeByDefault)
 				{
 					bookInfo.PublishSettings.BloomLibrary.SignLangs[collectionSignLangCode] = InclusionSetting.IncludeByDefault;
 				}
@@ -339,15 +342,6 @@ namespace Bloom.Publish.BloomLibrary
 
 			// The metadata may have been changed, so save it.
 			bookInfo.Save();
-		}
-
-		public static bool IsRequiredLanguageForBook(string langCode, Book.Book book)
-		{
-			// Languages which have been selected for display in this book need to be selected
-			return
-				langCode == book.BookData.Language1.Tag ||
-				langCode == book.Language2Tag ||
-				langCode == book.Language3Tag;
 		}
 
 		public void ClearSignLanguageToPublish()
@@ -372,22 +366,27 @@ namespace Bloom.Publish.BloomLibrary
 			return Book.BookInfo.PublishSettings.BloomLibrary.SignLangs.IncludedLanguages().Any();
 		}
 
-		public void ClearBlindAccessibleToPublish()
+		public bool L1SupportsVisuallyImpaired
 		{
-			Book.UpdateBlindFeature(false, null);
-			Book.BookInfo.Save();
+			get
+			{
+				return Book.BookInfo.MetaData.Feature_Blind_LangCodes.Contains(Book.Language1Tag);
+			}
+			set
+			{
+				Book.UpdateBlindFeature(value);
+				Book.BookInfo.Save();
+			}
 		}
 
-		public void SetOnlyBlindAccessibleToPublish(string langCode)
+		public string CheckBookBeforeUpload()
 		{
-			Book.UpdateBlindFeature(true, new List<string> { langCode });
-			Book.BookInfo.Save();
+			return new LicenseChecker().CheckBook(Book, TextLanguagesToUpload.ToArray());
 		}
 
-		public string CheckBookBeforeUpload(string[] languages)
-		{
-			return new LicenseChecker().CheckBook(Book, languages);
-		}
+		public IEnumerable<string> TextLanguagesToUpload => Book.BookInfo.PublishSettings.BloomLibrary.TextLangs
+			.Where(l => l.Value.IsIncluded())
+			.Select(l => l.Key);
 
 		public void AddHistoryRecordForLibraryUpload(string url)
 		{

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -10,9 +9,7 @@ using System.Xml;
 using Bloom.Api;
 using Bloom.Book;
 using Bloom.Edit;
-using Bloom.MiscUI;
 using Bloom.Utils;
-using Gecko;
 using L10NSharp;
 using SIL.Code;
 using SIL.CommandLineProcessing;
@@ -578,7 +575,7 @@ namespace Bloom.web.controllers
 		/// <summary>
 		/// Loops through all the videoContainers and prepares them for publishing. This includes trimming.
 		/// EpubMaker has different requirements and uses a slightly different process [in CopyVideos()],
-		/// but BookCompressor.CompressDirectory() for Android and BloomS3Client.UploadBook() for Upload use this method.
+		/// but BookCompressor.CompressDirectory() for BloomPUB and BloomS3Client.UploadBook() for Upload use this method.
 		/// </summary>
 		public static void ProcessVideos(IEnumerable<XmlElement> videoContainerElements, string sourceFolder)
 		{

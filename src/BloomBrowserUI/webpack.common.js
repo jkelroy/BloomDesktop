@@ -47,7 +47,8 @@ module.exports = merge(core, {
             "./bookEdit/pageThumbnailList/pageControls/pageControls.tsx",
         publishUIBundle: globule.find([
             "./publish/**/*.tsx",
-            "!./publish/**/stories.tsx"
+            "!./publish/**/stories.tsx",
+            "!./publish/**/*.stories.tsx"
         ]),
         enterpriseSettingsBundle: "./collection/enterpriseSettings.tsx",
 
@@ -84,7 +85,6 @@ module.exports = merge(core, {
             "./publish/LibraryPublish/uploadCollisionDlg.tsx",
         copyrightAndLicenseBundle:
             "./bookEdit/copyrightAndLicense/CopyrightAndLicenseDialog.tsx",
-
         collectionsTabPaneBundle: "./collectionsTab/CollectionsTabPane.tsx"
 
         // This slowed down webpack a ton, because the way it works is that it 1st finds it all,

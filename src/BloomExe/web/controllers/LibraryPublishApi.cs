@@ -5,8 +5,8 @@ using Bloom.WebLibraryIntegration;
 using Bloom.Workspace;
 using SIL.Progress;
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
@@ -24,23 +24,27 @@ namespace Bloom.web.controllers
 		private const string kWebSocketContext = "libraryPublish"; // must match what is in LibraryPublishScreen.tsx
 
 		private const string kWebSocketEventId_uploadSuccessful = "uploadSuccessful"; // must match what is in LibraryPublishSteps.tsx
+		private const string kWebSocketEventId_uploadCanceled = "uploadCanceled"; // must match what is in LibraryPublishSteps.tsx
 		private const string kWebSocketEventId_loginSuccessful = "loginSuccessful"; // must match what is in LibraryPublishSteps.tsx
 
 		private PublishView _publishView;
+		private PublishModel _publishModel;
 		private IBloomWebSocketServer _webSocketServer;
 		private WebSocketProgress _webSocketProgress;
 		private IProgress _progress;
-
-		public LibraryPublishApi(BloomWebSocketServer webSocketServer, PublishView publishView)
+		public LibraryPublishApi(BloomWebSocketServer webSocketServer, PublishView publishView, PublishModel publishModel)
 		{
 			_publishView = publishView;
+			_publishModel = publishModel;
+			Debug.Assert(publishModel == publishView._model);
+
 			_webSocketServer = webSocketServer;
 			var progress = new WebSocketProgress(_webSocketServer, kWebSocketContext);
 			_webSocketProgress = progress.WithL10NPrefix("PublishTab.Upload.");
 			_webSocketProgress.LogAllMessages = true;
 			_progress = new WebProgressAdapter(_webSocketProgress);
 
-			CommonApi.LoginSuccessful += (sender, args) =>
+			ExternalApi.LoginSuccessful += (sender, args) =>
 			{
 				_webSocketServer.SendString(kWebSocketContext, kWebSocketEventId_loginSuccessful, Model?.WebUserId);
 			};
@@ -58,20 +62,28 @@ namespace Bloom.web.controllers
 		{
 			apiHandler.RegisterEndpointHandler("libraryPublish/upload", HandleUpload, true);
 			apiHandler.RegisterEndpointHandler("libraryPublish/uploadCollection", HandleUploadCollection, true);
-			apiHandler.RegisterEndpointHandler("libraryPublish/uploadFolderOfCollections", HandleUploadFolderOfCollections, true);
+			apiHandler.RegisterEndpointHandler("libraryPublish/uploadFolderOfCollections",
+				HandleUploadFolderOfCollections, true);
 			apiHandler.RegisterEndpointHandler("libraryPublish/getBookInfo", HandleGetBookInfo, true);
 			apiHandler.RegisterEndpointHandler("libraryPublish/setSummary", HandleSetSummary, true);
 			apiHandler.RegisterEndpointHandler("libraryPublish/useSandbox", HandleUseSandbox, true);
 			apiHandler.RegisterEndpointHandler("libraryPublish/cancel", HandleCancel, true);
-			apiHandler.RegisterEndpointHandler("libraryPublish/getUploadCollisionInfo", HandleGetUploadCollisionInfo, true);
-			apiHandler.RegisterEndpointHandler("libraryPublish/uploadAfterChangingBookId", HandleUploadAfterChangingBookId, true);
+			apiHandler.RegisterEndpointHandler("libraryPublish/getUploadCollisionInfo", HandleGetUploadCollisionInfo,
+				true);
+			apiHandler.RegisterEndpointHandler("libraryPublish/uploadAfterChangingBookId",
+				HandleUploadAfterChangingBookId, true);
 			apiHandler.RegisterEndpointHandler("libraryPublish/checkForLoggedInUser", HandleCheckForLoggedInUser, true);
 			apiHandler.RegisterEndpointHandler("libraryPublish/login", HandleLogin, true);
 			apiHandler.RegisterEndpointHandler("libraryPublish/logout", HandleLogout, true);
+			apiHandler.RegisterEndpointHandler("libraryPublish/agreementsAccepted", HandleAgreementsAccepted, true);
+			apiHandler.RegisterEndpointHandler("libraryPublish/goToEditBookCover", HandleGoToEditBookCover, true);
 		}
+
+		private static bool ModelIndicatesSignLanguageChecked => Model.Book.HasSignLanguageVideos() && Model.IsPublishSignLanguage();
 
 		private void HandleGetBookInfo(ApiRequest request)
 		{
+			Model.EnsureUpToDateLicense();
 			dynamic bookInfo = new
 			{
 				title = Model.Title,
@@ -108,22 +120,6 @@ namespace Bloom.web.controllers
 				return;
 
 			_progress.CancelRequested = false;
-
-			//TODO verify user doesn't select sign language feature without setting language
-			// Not sure how to do that until we implement the settings... original just looked at the
-			// sign language checkbox. Seems like here we'll be looking for it be persisted? But it appears
-			// the original never let it be persisted in this state.
-			//Model.IsPublishSignLanguage() ?
-			//Model.Book.BookInfo.MetaData.Feature_SignLanguage ?
-			//if (_signLanguageCheckBox.Checked
-			//	&& string.IsNullOrEmpty(CurrentSignLanguageName))
-			//{
-			//	// report error in progress and bail
-			//	_webSocketProgress.Message("ChooseSignLanguageWarning",
-			//		"Please choose the sign language for this book", ProgressKind.Error);
-			//	request.PostSucceeded();
-			//	return;
-			//}
 
 			try
 			{
@@ -164,6 +160,7 @@ namespace Bloom.web.controllers
 				if (_progress.CancelRequested)
 				{
 					_webSocketProgress.Message("Cancelled", "Upload was cancelled", ProgressKind.Error);
+					_webSocketServer.SendEvent(kWebSocketContext, kWebSocketEventId_uploadCanceled);
 					return;
 				}
 
@@ -204,11 +201,7 @@ namespace Bloom.web.controllers
 
 		void BackgroundUpload(object _, DoWorkEventArgs e)
 		{
-			// TODO get selected languages
-			var languages = new string[0];
-
-			// REVIEW: maybe this whole check should be called from UploadOneBook?
-			var checkerResult = Model.CheckBookBeforeUpload(languages);
+			var checkerResult = Model.CheckBookBeforeUpload();
 			if (checkerResult != null)
 			{
 				_webSocketProgress.MessageWithoutLocalizing(checkerResult, ProgressKind.Error);
@@ -216,15 +209,15 @@ namespace Bloom.web.controllers
 				return;
 			}
 
-			//TODO
 			Model.UpdateBookMetadataFeatures(
-				false, false, false
+				Model.Book.BookInfo.PublishSettings.BloomLibrary.AudioLangs.Any(),
+				ModelIndicatesSignLanguageChecked
 			);
 
-			//TODO
-			var includeBackgroundMusic = false;
+			// We currently have no way to turn this off. This is by design, we don't think it is a needed complication.
+			var includeBackgroundMusic = true;
 
-			var uploadResult = Model.UploadOneBook(Model.Book, _progress, _publishView, !includeBackgroundMusic, out var parseId);
+			var uploadResult = Model.UploadOneBook(Model.Book, _progress, _publishModel, !includeBackgroundMusic, out var parseId);
 
 			e.Result = (uploadResult, parseId);
 		}
@@ -255,10 +248,15 @@ namespace Bloom.web.controllers
 		{
 			_publishView.SetStateOfNonUploadRadios(enable);
 
+			GetWorkspaceView()?.SetStateOfNonPublishTabs(enable);
+		}
+
+		private WorkspaceView GetWorkspaceView()
+		{
 			var parent = _publishView.Parent;
 			while (parent != null && !(parent is WorkspaceView))
 				parent = parent.Parent;
-			((WorkspaceView)parent)?.SetStateOfNonPublishTabs(enable);
+			return (WorkspaceView)parent;
 		}
 
 		private void HandleUploadCollection(ApiRequest request)
@@ -303,10 +301,7 @@ namespace Bloom.web.controllers
 			dynamic collisionDialogInfo;
 			if (Model.BookIsAlreadyOnServer)
 			{
-				// TODO
-				bool signLanguageFeatureSelected = false;
-
-				collisionDialogInfo = Model.GetUploadCollisionDialogProps(GetLanguagesToUpload(), signLanguageFeatureSelected);
+				collisionDialogInfo = Model.GetUploadCollisionDialogProps(Model.TextLanguagesToUpload, ModelIndicatesSignLanguageChecked);
 			}
 			else
 			{
@@ -317,16 +312,6 @@ namespace Bloom.web.controllers
 			}
 
 			request.ReplyWithJson(collisionDialogInfo);
-		}
-
-		private IEnumerable<string> GetLanguagesToUpload()
-		{
-			// TODO waiting to see how we do the settings before I know if this is correct.
-			// If it is, we should make it a property on the model.
-			return
-				Model.Book.BookInfo.PublishSettings.BloomLibrary.TextLangs
-				.Where(l => l.Value.IsIncluded())
-				.Select(l => l.Key);
 		}
 
 		private void HandleUploadAfterChangingBookId(ApiRequest request)
@@ -354,6 +339,25 @@ namespace Bloom.web.controllers
 		private void HandleLogout(ApiRequest request)
 		{
 			Model.LogOut();
+			request.PostSucceeded();
+		}
+
+		private void HandleAgreementsAccepted(ApiRequest request)
+		{
+			if (request.HttpMethod == HttpMethods.Get)
+				request.ReplyWithBoolean(Model.Book.UserPrefs.UploadAgreementsAccepted);
+			else
+			{
+				Model.Book.UserPrefs.UploadAgreementsAccepted = request.RequiredPostBooleanAsJson();
+				request.PostSucceeded();
+			}
+		}
+
+		private void HandleGoToEditBookCover(ApiRequest request)
+		{
+			// 0 is the index of the first page, the front cover.
+			Model.Book.UserPrefs.MostRecentPage = 0;
+			GetWorkspaceView()?.ChangeTab(WorkspaceTab.edit);
 			request.PostSucceeded();
 		}
 	}

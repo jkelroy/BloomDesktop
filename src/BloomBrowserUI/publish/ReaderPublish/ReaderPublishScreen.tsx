@@ -11,13 +11,13 @@ import {
     PublishPanel
 } from "../commonPublish/PublishScreenBaseComponents";
 import { MethodChooser } from "./MethodChooser";
-import { PublishFeaturesGroup } from "./PublishFeaturesGroup";
-import { CoverColorGroup } from "./CoverColorGroup";
+import { PublishFeaturesGroup } from "../commonPublish/PublishFeaturesGroup";
+import { CoverColorGroup } from "../commonPublish/CoverColorGroup";
 import PublishScreenTemplate from "../commonPublish/PublishScreenTemplate";
 import { DeviceAndControls } from "../commonPublish/DeviceAndControls";
 import ReactDOM = require("react-dom");
 import { ThemeProvider, StyledEngineProvider } from "@mui/material/styles";
-import { darkTheme, lightTheme } from "../../bloomMaterialUITheme";
+import { lightTheme } from "../../bloomMaterialUITheme";
 import { StorybookContext } from "../../.storybook/StoryBookContext";
 import {
     useSubscribeToWebSocketForStringMessage,
@@ -33,14 +33,12 @@ import {
 import { PublishProgressDialog } from "../commonPublish/PublishProgressDialog";
 import { useL10n } from "../../react_components/l10nHooks";
 import { ProgressState } from "../commonPublish/PublishProgressDialogInner";
-import { PublishLanguagesGroup } from "./PublishLanguagesGroup";
+import { PublishLanguagesGroup } from "../commonPublish/PublishLanguagesGroup";
 import {
     BulkBloomPubDialog,
     showBulkBloomPubDialog
 } from "./BulkBloomPub/BulkBloomPubDialog";
 import { EmbeddedProgressDialog } from "../../react_components/Progress/ProgressDialog";
-import { hookupLinkHandler } from "../../utils/linkHandler";
-import { Div } from "../../react_components/l10nComponents";
 
 export const ReaderPublishScreen = () => {
     // When the user changes some features, included languages, etc., we
@@ -54,20 +52,24 @@ export const ReaderPublishScreen = () => {
             onReset={() => {
                 setKeyForReset(keyForReset + 1);
             }}
+            showPreview={keyForReset > 0}
         />
     );
 };
 
 const ReaderPublishScreenInternal: React.FunctionComponent<{
     onReset: () => void;
+    showPreview: boolean;
 }> = props => {
     const inStorybookMode = useContext(StorybookContext);
     const [heading, setHeading] = useState(
         useL10n("Creating Digital Book", "PublishTab.Android.Creating")
     );
     const [closePending, setClosePending] = useState(false);
-    const [highlightRefresh, setHighlightRefresh] = useState(false);
-    const [progressState, setProgressState] = useState(ProgressState.Working);
+    const [highlightPreview, setHighlightPreview] = useState(false);
+    // Starting in ProgressState.Done hides the progress dialog initially.
+    const [progressState, setProgressState] = useState(ProgressState.Done);
+    const [generation, setGeneration] = useState(0);
 
     // bookUrl is expected to be a normal, well-formed URL.
     // (that is, one that you can directly copy/paste into your browser and it would work fine)
@@ -83,13 +85,13 @@ const ReaderPublishScreenInternal: React.FunctionComponent<{
     );
 
     const [defaultLandscape] = useApiBoolean(
-        "publish/android/defaultLandscape",
+        "publish/bloompub/defaultLandscape",
         false
     );
-    const [canRotate] = useApiBoolean("publish/android/canRotate", false);
+    const [canRotate] = useApiBoolean("publish/bloompub/canRotate", false);
     useSubscribeToWebSocketForStringMessage(
-        "publish-android",
-        "androidPreview",
+        "publish-bloompub",
+        "bloomPubPreview",
         url => {
             setBookUrl(url);
         }
@@ -100,8 +102,8 @@ const ReaderPublishScreenInternal: React.FunctionComponent<{
     const wifiWorking = useL10n("Publishing", "PublishTab.Common.Publishing");
 
     useSubscribeToWebSocketForEvent(
-        "publish-android",
-        "publish/android/state",
+        "publish-bloompub",
+        "publish/bloompub/state",
         e => {
             switch (e.message) {
                 case "stopped":
@@ -126,6 +128,15 @@ const ReaderPublishScreenInternal: React.FunctionComponent<{
         }
     );
 
+    const previewUrl =
+        pathToOutputBrowser +
+        "bloom-player/dist/bloomplayer.htm?centerVertically=true&url=" +
+        encodeURIComponent(bookUrl) + // Need to apply encoding to the bookUrl again as data to use it as a parameter of another URL
+        "&independent=false" + // you can temporarily comment this out to send BloomPlayer analytics from Bloom Editor
+        "&host=bloomdesktop" +
+        "&roundPageWidthToNearestK=2" + // Fractional pixels can cause a small sliver of the next page or background color to show (See BL-11497)
+        "&roundMarginToNearestK=2"; // Fractional pixels can cause a small sliver of the next page or background color to show (See BL-11497)
+
     const mainPanel = (
         <React.Fragment>
             <PublishPanel
@@ -137,49 +148,33 @@ const ReaderPublishScreenInternal: React.FunctionComponent<{
                 <MethodChooser />
             </PublishPanel>
             <PreviewPanel>
-                <StyledEngineProvider injectFirst>
-                    <ThemeProvider theme={darkTheme}>
-                        <Div
-                            css={css`
-                                color: white;
-                                font-weight: bold;
-                                flex-shrink: 1;
-                            `}
-                            l10nKey="Common.Preview"
-                        >
-                            Preview
-                        </Div>
-                        <DeviceAndControls
-                            defaultLandscape={defaultLandscape}
-                            canRotate={canRotate}
-                            url={
-                                pathToOutputBrowser +
-                                "bloom-player/dist/bloomplayer.htm?centerVertically=true&url=" +
-                                encodeURIComponent(bookUrl) + // Need to apply encoding to the bookUrl again as data to use it as a parameter of another URL
-                                "&independent=false" + // you can temporarily comment this out to send BloomPlayer analytics from Bloom Editor
-                                "&host=bloomdesktop" +
-                                "&roundPageWidthToNearestK=2" + // Fractional pixels can cause a small sliver of the next page or background color to show (See BL-11497)
-                                "&roundMarginToNearestK=2" // Fractional pixels can cause a small sliver of the next page or background color to show (See BL-11497)
-                            }
-                            showRefresh={true}
-                            highlightRefreshIcon={highlightRefresh}
-                            onRefresh={() => props.onReset()}
-                        />
-                    </ThemeProvider>
-                </StyledEngineProvider>
+                <DeviceAndControls
+                    defaultLandscape={defaultLandscape}
+                    canRotate={canRotate}
+                    // The following leaves a blank screen until the Preview button is pressed
+                    url={`${props.showPreview ? previewUrl : ""}`}
+                    showPreviewButton={true}
+                    highlightPreviewButton={highlightPreview}
+                    onPreviewButtonClicked={() => props.onReset()}
+                />
             </PreviewPanel>
         </React.Fragment>
     );
 
     const optionsPanel = (
         <SettingsPanel>
-            <PublishFeaturesGroup
+            <PublishLanguagesGroup
                 onChange={() => {
-                    props.onReset();
+                    setHighlightPreview(true);
+                    // Forces features group to re-evaluate whether this will be a talking book.
+                    setGeneration(old => old + 1);
                 }}
             />
-            <CoverColorGroup onChange={() => props.onReset()} />
-            <PublishLanguagesGroup onChange={() => setHighlightRefresh(true)} />
+            <PublishFeaturesGroup
+                generation={generation}
+                onChange={() => setHighlightPreview(true)}
+            />
+            <CoverColorGroup onChange={() => setHighlightPreview(true)} />
             {/* push everything to the bottom */}
             <div
                 css={css`
@@ -250,29 +245,30 @@ const ReaderPublishScreenInternal: React.FunctionComponent<{
                 // The BloomPUB Viewer link "should" jump to the "Related Software" section.
                 // Unfortunately our blorg load process doesn't seem to handle hash suffixes yet.
                 // Perhaps someday we'll figure out how to do that.
-                bannerDescriptionMarkdown="BloomPUBs are a kind of eBook that can be read on phone apps ([Bloom Reader](https://bloomlibrary.org/page/create/bloom-reader) and [Reading App Builder](https://software.sil.org/readingappbuilder/)) and on Windows using [BloomPUB Viewer](https://bloomlibrary.org/page/create/downloads#related-software). They offer many advantages over ePUBs, including WYSIWYG fidelity and the full range of Bloom digital book features."
-                bannerDescriptionL10nId="PublishTab.BloomPUB.BannerDescription"
+                bannerDescriptionMarkdown="BloomPUBs are a kind of eBook. Your book will look exactly like it does here in Bloom. It will have all the same features. This makes BloomPUBs better than ePUBs."
+                bannerDescriptionL10nId="PublishTab.BloomPUB.BannerDescription.v2"
                 optionsPanelContents={optionsPanel}
             >
                 {mainPanel}
             </PublishScreenTemplate>
             {/* In storybook, there's no bloom backend to run the progress dialog */}
-            {inStorybookMode || (
-                <PublishProgressDialog
-                    heading={heading}
-                    startApiEndpoint="publish/android/updatePreview"
-                    webSocketClientContext="publish-android"
-                    progressState={progressState}
-                    setProgressState={setProgressState}
-                    closePending={closePending}
-                    setClosePending={setClosePending}
-                    onUserStopped={() => {
-                        postData("publish/android/usb/stop", {});
-                        postData("publish/android/wifi/stop", {});
-                        setClosePending(true);
-                    }}
-                />
-            )}
+            {inStorybookMode ||
+                (props.showPreview && (
+                    <PublishProgressDialog
+                        heading={heading}
+                        startApiEndpoint="publish/bloompub/updatePreview"
+                        webSocketClientContext="publish-bloompub"
+                        progressState={progressState}
+                        setProgressState={setProgressState}
+                        closePending={closePending}
+                        setClosePending={setClosePending}
+                        onUserStopped={() => {
+                            postData("publish/bloompub/usb/stop", {});
+                            postData("publish/bloompub/wifi/stop", {});
+                            setClosePending(true);
+                        }}
+                    />
+                ))}
             <EmbeddedProgressDialog id="readerPublish" />
         </React.Fragment>
     );

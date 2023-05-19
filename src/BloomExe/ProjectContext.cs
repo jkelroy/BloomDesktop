@@ -18,7 +18,7 @@ using Bloom.Api;
 using Bloom.TeamCollection;
 using Bloom.Publish;
 using Bloom.Publish.AccessibilityChecker;
-using Bloom.Publish.Android;
+using Bloom.Publish.BloomPub;
 using Bloom.Publish.Epub;
 using Bloom.Publish.PDF;
 using Bloom.Publish.Video;
@@ -80,15 +80,6 @@ namespace Bloom
 			if (!justEnoughForHtmlDialog)
 			ProjectWindow = _scope.Resolve <Shell>();
 
-			string collectionDirectory = Path.GetDirectoryName(projectSettingsPath);
-
-			//should we save a link to this in the list of collections?
-			var collectionSettings = _scope.Resolve<CollectionSettings>();
-			if(!justEnoughForHtmlDialog && collectionSettings.IsSourceCollection)
-			{
-				AddShortCutInComputersBloomCollections(collectionDirectory);
-			}
-
 			ToolboxView.SetupToolboxForCollection(Settings);
 			_scope.Resolve<TeamCollectionManager>().Settings = Settings;
 		}
@@ -141,11 +132,12 @@ namespace Bloom
 							typeof (ControlKeyEvent),
 							typeof (BookStatusChangeEvent),
 							typeof (EditingModel),
+							typeof (PublishModel),
 							typeof (AudioRecording),
 							typeof(BookSettingsApi),
 							typeof(SpreadsheetApi),
 							typeof(BookMetadataApi),
-							typeof(PublishToAndroidApi),
+							typeof(PublishToBloomPubApi),
 							typeof(PublishPdfApi),
 							typeof(PublishAudioVideoAPI),
 							typeof(PublishEpubApi),
@@ -174,15 +166,16 @@ namespace Bloom
 							typeof(FileIOApi),
 							typeof(ProgressDialogApi),
 							typeof(EditingViewApi),
-							typeof(BrowserDialogApi),
 							typeof(ProblemReportApi),
 							typeof(FontsApi),
 							typeof(BulkBloomPubCreator),
+							typeof(PublishApi),
 							typeof(LibraryPublishApi),
 							typeof(WorkspaceApi),
 							typeof(BookCollectionHolder),
 							typeof(WorkspaceTabSelection),
 							typeof(CopyrightAndLicenseApi),
+							typeof(ExternalApi),
 							typeof(PublishView)
 						}.Contains(t));
 
@@ -259,7 +252,7 @@ namespace Bloom
 					builder.Register<SourceCollectionsList>(c =>
 					{
 						var l = new SourceCollectionsList(c.Resolve<Book.Book.Factory>(), c.Resolve<BookStorage.Factory>(),
-							 editableCollectionDirectory, new string[] {BloomFileLocator.FactoryCollectionsDirectory, GetInstalledCollectionsDirectory()});
+							 editableCollectionDirectory, SourceRootFolders());
 						return l;
 					}).InstancePerLifetimeScope();
 
@@ -340,7 +333,8 @@ namespace Bloom
 			ToolboxView.RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<PageTemplatesApi>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<AddOrChangePageApi>().RegisterWithApiHandler(server.ApiHandler);
-			_scope.Resolve<PublishToAndroidApi>().RegisterWithApiHandler(server.ApiHandler);
+			_scope.Resolve<PublishApi>().RegisterWithApiHandler(server.ApiHandler);
+			_scope.Resolve<PublishToBloomPubApi>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<PublishPdfApi>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<PublishAudioVideoAPI>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<PublishEpubApi>().RegisterWithApiHandler(server.ApiHandler);
@@ -364,7 +358,6 @@ namespace Bloom
 			_scope.Resolve<AppApi>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<SignLanguageApi>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<AudioSegmentationApi>().RegisterWithApiHandler(server.ApiHandler);
-			_scope.Resolve<BrowserDialogApi>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<ProblemReportApi>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<CopyrightAndLicenseApi>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<I18NApi>().RegisterWithApiHandler(server.ApiHandler);
@@ -372,10 +365,15 @@ namespace Bloom
 			_scope.Resolve<ProgressDialogApi>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<EditingViewApi>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<LibraryPublishApi>().RegisterWithApiHandler(server.ApiHandler);
-			_scope.Resolve<LibraryPublishApi_Obsolete>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<PerformanceMeasurement>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<FontsApi>().RegisterWithApiHandler(server.ApiHandler);
 			_scope.Resolve<WorkspaceApi>().RegisterWithApiHandler(server.ApiHandler);
+			_scope.Resolve<ExternalApi>().RegisterWithApiHandler(server.ApiHandler);
+		}
+
+		public static string[] SourceRootFolders()
+		{
+			return new string[] {BloomFileLocator.FactoryCollectionsDirectory, GetInstalledCollectionsDirectory()};
 		}
 
 		// Get the collection settings. Passed the expected path, but if not found,
@@ -736,32 +734,6 @@ namespace Bloom
 //			_commandAvailabilityPublisher = null;
 
 			GC.SuppressFinalize(this);
-		}
-
-		/// <summary>
-		/// The idea here is that if someone is editing a shell collection, then next thing they are likely to do is
-		/// open a vernacular library and try it out.  By adding this link, well they'll see this collection like
-		/// they probably expect.
-		/// </summary>
-		private void AddShortCutInComputersBloomCollections(string vernacularCollectionDirectory)
-		{
-			if (!Directory.Exists(ProjectContext.GetInstalledCollectionsDirectory()))
-				return;//well, that would be a bug, I suppose...
-
-			try
-			{
-				ShortcutMaker.CreateDirectoryShortcut(vernacularCollectionDirectory, ProjectContext.GetInstalledCollectionsDirectory());
-			}
-			catch (ApplicationException e)
-			{
-				ErrorReport.NotifyUserOfProblem(new ShowOncePerSessionBasedOnExactMessagePolicy(), e.Message);
-			}
-			catch (Exception e)
-			{
-				ErrorReport.NotifyUserOfProblem(e,
-					"Could not add a link for this shell library in the user collections directory");
-			}
-
 		}
 	}
 }

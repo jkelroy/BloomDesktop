@@ -15,14 +15,14 @@ import {
 } from "../../react_components/BloomDialog/BloomDialog";
 import {
     DialogCancelButton,
-    DialogFolderChooser,
-    WarningBox
+    DialogFolderChooser
 } from "../../react_components/BloomDialog/commonDialogComponents";
 
 import { kVerticalSpacingBetweenDialogSections } from "../../bloomMaterialUITheme";
 import { ExperimentalBadge } from "../../react_components/experimentalBadge";
 import { Div } from "../../react_components/l10nComponents";
 import { useEventLaunchedBloomDialog } from "../../react_components/BloomDialog/BloomDialogPlumbing";
+import { WarningBox } from "../../react_components/boxes";
 
 export const SpreadsheetExportDialogLauncher: React.FunctionComponent<{}> = () => {
     const {
@@ -76,13 +76,10 @@ const SpreadsheetExportDialog: React.FunctionComponent<{
                 <p></p>
                 <WarningBox>
                     <span>
-                        This feature is still a work in progress. Though you can{" "}
-                        <em>export</em> all books, Bloom cannot <em>import</em>{" "}
-                        books with these features: Quizzes and other Activities.
-                        If you change the text after recording audio and before
-                        exporting, the audio may not import correctly. There may
-                        be other export and import limitations we are not aware
-                        of.
+                        This feature is still a work in progress. If you change
+                        the text after recording audio and before exporting, the
+                        audio may not import correctly. There may be other
+                        export and import limitations we are not aware of.
                     </span>
                 </WarningBox>
                 <p></p>

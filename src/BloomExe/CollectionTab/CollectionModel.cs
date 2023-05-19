@@ -341,8 +341,7 @@ namespace Bloom.CollectionTab
 						BloomMessageBox.ShowInfo(msg);
 						return false;
 					}
-
-					if (_tcManager.CannotDeleteBecauseDisconnected(_bookSelection.CurrentSelection.FolderPath))
+					if (_tcManager.CannotDeleteBecauseDisconnected(_bookSelection.CurrentSelection))
 					{
 						var msg = LocalizationManager.GetString("TeamCollection.ConnectForDelete",
 							"Please connect to the Team Collection before deleting books that are part of it.");
@@ -420,23 +419,6 @@ namespace Bloom.CollectionTab
 			}
 
 			_bookSelection.SelectBook(b);
-		}
-
-
-		public void ExportInDesignXml(string path)
-		{
-			var pathToXnDesignXslt = FileLocationUtilities.GetFileDistributedWithApplication("xslts", "BloomXhtmlToDataForMergingIntoInDesign.xsl");
-
-#if DEBUG
-			_bookSelection.CurrentSelection.OurHtmlDom.RawDom.Save(path.Replace(".xml", ".xhtml"));
-#endif
-
-			var dom = _bookSelection.CurrentSelection.OurHtmlDom.ApplyXSLT(pathToXnDesignXslt);
-
-			using (var writer = XmlWriter.Create(path, CanonicalXmlSettings.CreateXmlWriterSettings()))
-			{
-				dom.Save(writer);
-			}
 		}
 
 		private bool bookHasClass(string className)

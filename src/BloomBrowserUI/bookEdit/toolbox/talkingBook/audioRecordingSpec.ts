@@ -1481,7 +1481,7 @@ describe("audio recording tests", () => {
                 );
 
                 const expectedDiv2Result =
-                    '<div class="bloom-editable" id="div2" data-audiorecordingmode="Sentence"><p><span id="2.1" class="audio-sentence ui-audioCurrent" recordingmd5="undefined">Sentence 2.1.</span> <span id="2.2" class="audio-sentence" recordingmd5="undefined">Sentence 2.2.</span></p></div>';
+                    '<div class="bloom-editable" id="div2" data-audiorecordingmode="Sentence"><p><span class="bloom-ui-current-audio-marker bloom-ui"></span><span id="2.1" class="audio-sentence ui-audioCurrent" recordingmd5="undefined">Sentence 2.1.</span> <span id="2.2" class="audio-sentence" recordingmd5="undefined">Sentence 2.2.</span></p></div>';
                 expect(div2.outerHTML).toBe(
                     expectedDiv2Result,
                     "Div2 HTML should switch back to sentence mode"
@@ -1541,8 +1541,8 @@ describe("audio recording tests", () => {
                 );
 
                 const sentences = textBox1.getElementsByTagName("SPAN");
-                expect(sentences.length).toBe(2);
-                const sentence1 = sentences.item(0)!;
+                expect(sentences.length).toBe(3); // includes icon-holder span
+                const sentence1 = sentences.item(1)!;
                 expect(sentence1.classList.contains("ui-audioCurrent")).toBe(
                     true
                 );
@@ -2544,7 +2544,7 @@ export function SetupTalkingBookUIElements() {
     document.body.appendChild(document.createElement("div")); // Ensures there is always an element.
 
     const html =
-        '<button id="audio-record" ></button><button id="audio-play"></button><div id="audio-split-wrapper"><button id="audio-split"></button></div><button id="audio-next"></button><button id="audio-prev"></button><button id="audio-clear"></button><input id="audio-recordingModeControl"><div id="audio-recordingModeControl-clickHandler" /></input><div id="audio-playbackOrderControl"></div><audio id="player" ></audio>';
+        '<button id="audio-record" ></button><button id="audio-play"></button><div id="audio-split-wrapper"><button id="audio-split"></button></div><button id="audio-next"></button><button id="audio-prev"></button><button id="audio-clear"></button><input id="audio-recordingModeControl"><div id="audio-recordingModeControl-clickHandler" /></input><div id="audio-playbackOrderControl"></div><input id="audio-showImageDescription"><div id="audio-showImageDescription-clickHandler" /></input><audio id="player" ></audio>';
     document.body.firstElementChild!.insertAdjacentHTML("afterend", html);
 }
 
